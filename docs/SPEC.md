@@ -133,6 +133,11 @@ outputs follow the UI language.
 - On signal loss (per element): freeze last frame, then transparent after
   5 s (default); alternatives: black, transparent, placeholder.
 
+Implementation (milestone 5): NDI reaches the browser as MJPEG (one shared
+GStreamer pipeline per source and format); WebRTC may be added later as an
+alternative transport. Per element: source, stream resolution, maximum frame
+rate, JPEG quality, fit, behaviour on signal loss.
+
 ## 7. System
 
 - External control: documented REST API with its own API key (separate from

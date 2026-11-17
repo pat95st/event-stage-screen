@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="not-installed" class="alert alert-warning" hidden>
+  <strong>{{ _("NDI is not installed on this device.") }}</strong>
+  {{ _("Run the installer with NDI support on the Pi; it downloads the NDI runtime after you have accepted the NDI license:") }}
+  <code class="d-block mt-1">sudo ./deploy/install-ndi.sh</code>
+</div>
+<div class="row g-3">
+  <div class="col-xl-5 d-flex flex-column gap-3">
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Status") }}</span></div>
+      <div class="ess-panel-body"><dl class="kv" id="caps"></dl></div>
+    </div>
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Discovery") }}</span></div>
+      <div class="ess-panel-body">
+        <p class="small text-dim">{{ _("Sources in the local network are found automatically (mDNS). In routed networks or VLANs, enter NDI discovery servers.") }}</p>
+        <form id="disc-form" class="d-flex gap-2">
+          <input class="form-control mono" name="servers" placeholder="192.168.1.10, ndi.example.org" aria-label="{{ _('Discovery servers') }}">
+          <button class="btn btn-console" type="submit">{{ _("Save") }}</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-7 d-flex flex-column gap-3">
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Sources") }}</span><button class="btn btn-sm btn-console" id="btn-scan">{{ _("Search") }}</button></div>
+      <div class="ess-panel-body"><ul class="list-unstyled mb-0 mono small" id="sources"></ul></div>
+    </div>
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Active streams") }}</span></div>
+      <div class="ess-panel-body">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>{{ _("Source") }}</th><th>{{ _("Format") }}</th><th>fps</th><th>{{ _("Viewers") }}</th><th>{{ _("State") }}</th></tr></thead>
+          <tbody id="streams"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const T = ESS.t, esc = ESS.esc;
+  const yes = (v) => (v ? "✓ " + T("yes") : "✗ " + T("no"));
+
+  async function load() {
+    const d = await ESS.api("/api/ndi");
+    document.getElementById("not-installed").hidden = d.plugin;
+    const rows = [[T("GStreamer"), yes(d.gstreamer)], [T("NDI plugin and runtime"), yes(d.plugin)],
+                  [T("Simultaneous sources"), `${d.limit} (${T("change under System › Performance")})`]];
+    if (d.test_sources) rows.push([T("Test sources"), T("enabled (development mode)")]);
+    document.getElementById("caps").innerHTML = rows.map((r) => `<dt>${esc(r[0])}</dt><dd>${esc(r[1])}</dd>`).join("");
+    const form = document.getElementById("disc-form");
+    if (document.activeElement !== form.elements.servers) form.elements.servers.value = d.discovery_servers.join(", ");
+    document.getElementById("streams").innerHTML = d.streams.length ? d.streams.map((s) => {
+      const state = s.error ? `<span class="text-danger">${esc(s.error)}</span>`
+        : s.running ? (s.last_frame_age_s !== null && s.last_frame_age_s < 2 ? `<span class="text-success">${esc(T("live"))}</span>` : esc(T("waiting for signal")))
+        : esc(T("stopped"));
+      return `<tr><td>${esc(s.source)}</td><td>${esc(s.resolution)} · ${s.fps_limit} fps · Q${s.quality}</td><td>${s.fps}</td><td>${s.viewers}</td><td>${state}</td></tr>`;
+    }).join("") : `<tr><td colspan="5" class="text-dim">${esc(T("No active streams."))}</td></tr>`;
+  }
+
+  async function scan() {
+    const box = document.getElementById("sources");
+    box.innerHTML = `<li class="text-dim">${esc(T("Searching …"))}</li>`;
+    const d = await ESS.api("/api/ndi/sources");
+    box.innerHTML = d.sources.length ? d.sources.map((s) => `<li>${esc(s)}</li>`).join("")
+      : `<li class="text-dim">${esc(d.available ? T("No NDI sources found.") : T("NDI is not installed on this device."))}</li>`;
+  }
+
+  document.getElementById("disc-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const servers = e.target.servers.value.split(/[\s,;]+/).filter(Boolean);
+    await ESS.run(() => ESS.api("/api/ndi/settings", { discovery_servers: servers }), T("Saved"));
+    load();
+  });
+  document.getElementById("btn-scan").addEventListener("click", () => scan().catch((e) => ESS.toast(e.message, "err")));
+  load().catch((e) => ESS.toast(e.message, "err"));
+  scan().catch(() => {});
+  setInterval(() => load().catch(() => {}), 3000);
+})();
+</script>
+{% endblock %}

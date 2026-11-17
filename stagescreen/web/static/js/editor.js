@@ -23,11 +23,12 @@
     saveTimer: null, saving: false, saveQueued: false,
     fonts: { bundled: [], uploaded: [], system: [] },
     media: [],
+    ndiSources: [],
     view: null,          // {scale, x, y}
     drag: null,
   };
-  const TYPE_ICON = { text: "T", image: "▣", clock: "◷", color: "■", erm: "⏱" };
-  const TYPE_LABEL = { text: T("Text"), image: T("Image"), clock: T("Clock"), color: T("Colour area"), erm: "eventrentmanager" };
+  const TYPE_ICON = { text: "T", image: "▣", clock: "◷", color: "■", erm: "⏱", ndi: "◉" };
+  const TYPE_LABEL = { text: T("Text"), image: T("Image"), clock: T("Clock"), color: T("Colour area"), erm: "eventrentmanager", ndi: "NDI" };
   const ERM_FIELD_LABEL = {
     countdown: T("Countdown / remaining time"), progress: T("Progress bar"), current: T("Current item"),
     description: T("Description"), notes: T("Trade notes"), next: T("Next item"), delay: T("Delay"),
@@ -35,7 +36,7 @@
     program: T("Programme / room / event"), status: T("Online/offline state"),
   };
 
-  let stage = SceneRender.createStage(host, { editor: true, t: T, locale: ESS.lang });
+  let stage = SceneRender.createStage(host, { editor: true, t: T, locale: ESS.lang, ndiMode: "snapshot" });
 
   // ================================================================== helpers
   const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -314,7 +315,7 @@
   function closeScene() {
     E.meta = null; E.scene = null; E.selected = null;
     stage.destroy();
-    stage = SceneRender.createStage(host, { editor: true, t: T, locale: ESS.lang });
+    stage = SceneRender.createStage(host, { editor: true, t: T, locale: ESS.lang, ndiMode: "snapshot" });
     overlay.innerHTML = "";
     $("ed-empty").hidden = false;
     renderLayers(); renderProps(); updateState(); updateButtons();
@@ -372,7 +373,11 @@
       props = Object.assign(textProps(h, mono), { style: "digital", format: "HH:mm:ss", face_color: "#111111", hand_color: "#ffffff",
         second_color: "#e5484d", tick_color: "#bbbbbb", show_seconds: true, time_source: "erm" });
     } else if (type === "color") { w = W * 0.3; h = H * 0.2; props = { color: "#2fb4e8", radius: 0, border_width: 0, border_color: "#ffffff" }; }
-    else if (type === "erm") {
+    else if (type === "ndi") {
+      w = W * 0.5; h = w * 9 / 16;
+      props = { source: E.ndiSources.find((x) => !x.startsWith("test:")) || "", resolution: "1080", fps: 30, quality: 80, fit: "contain",
+        on_loss: "freeze_then_transparent", loss_timeout: 5, placeholder_text: "" };
+    } else if (type === "erm") {
       const d = ermDefaults(field || "countdown", W, H, font, mono);
       w = d.w; h = d.h; props = d.props;
     } else { w = W * 0.3; h = H * 0.3; props = { media_id: null, fit: "contain" }; }
@@ -686,6 +691,21 @@
       { k: "props.show_online", l: T("Also show when online"), t: "bool", fld: ["status"] },
       ...TEXT_FIELDS.map((f) => Object.assign({ fld: ["countdown", "current", "description", "notes", "next", "delay", "messages", "nostrobe", "itemlist", "mics", "program", "status"] }, f)),
     ],
+    ndi: [
+      { sec: "NDI" },
+      { k: "props.source", l: T("NDI source"), t: "ndisource", full: true },
+      { k: "props.resolution", l: T("Stream resolution"), t: "select", opts: [["native", T("Original")], ["1080", "1080p"], ["720", "720p"], ["540", "540p"], ["360", "360p"]] },
+      { k: "props.fps", l: T("Max. frame rate"), t: "num", min: 1, max: 60 },
+      { k: "props.quality", l: T("JPEG quality"), t: "num", min: 10, max: 100 },
+      { k: "props.fit", l: T("Fit"), t: "select", opts: [["contain", T("Fit (keep aspect ratio)")], ["cover", T("Fill (crop)")], ["fill", T("Stretch")]] },
+      { help: T("Lower resolution and frame rate reduce the CPU load. The editor shows about one frame per second; the outputs show the live stream.") },
+      { sec: T("On signal loss") },
+      { k: "props.on_loss", l: T("Behaviour"), t: "select", full: true, opts: [
+        ["freeze_then_transparent", T("Freeze last frame, then transparent")], ["freeze", T("Freeze last frame")],
+        ["black", T("Black")], ["transparent", T("Transparent")], ["placeholder", T("Placeholder text")]] },
+      { k: "props.loss_timeout", l: T("Freeze for (s)"), t: "num", min: 1, max: 120, loss: ["freeze_then_transparent"] },
+      { k: "props.placeholder_text", l: T("Placeholder text"), t: "text", loss: ["placeholder"] },
+    ],
     color: [
       { sec: T("Colour area") },
       { k: "props.color", l: T("Colour"), t: "color", transparent: true },
@@ -740,6 +760,7 @@
   function fieldVisible(f, target) {
     if (f.fld && target.type === "erm" && !f.fld.includes(target.props.field)) return false;
     if (target.type === "erm" && f.k === "props.notes_keys" && target.props.notes_filter !== "custom") return false;
+    if (f.loss && target.type === "ndi" && !f.loss.includes(target.props.on_loss)) return false;
     if (target.type !== "clock") return true;
     if (f.digital && target.props.style !== "digital") return false;
     if (f.analog && target.props.style !== "analog") return false;
@@ -783,6 +804,20 @@
         row.appendChild(tr);
       }
       wrap.appendChild(row);
+    } else if (f.t === "ndisource") {
+      const row = document.createElement("div"); row.className = "d-flex gap-2";
+      input = document.createElement("input"); input.className = "form-control"; input.value = value || ""; input.id = id;
+      input.placeholder = T("e.g. STUDIO-PC (OBS)");
+      const dl = document.createElement("datalist"); dl.id = id + "-list";
+      const fill = () => { dl.innerHTML = E.ndiSources.map((x) => `<option value="${esc(x)}">`).join(""); };
+      fill();
+      input.setAttribute("list", dl.id);
+      const btn = document.createElement("button"); btn.type = "button"; btn.className = "btn btn-sm btn-console"; btn.textContent = "⟳";
+      btn.title = T("Search for NDI sources");
+      btn.addEventListener("click", async () => { await loadNdiSources(); fill(); ESS.toast(T("{n} sources found", { n: E.ndiSources.length }), "ok"); });
+      input.addEventListener("change", () => update(f, input.value.trim(), true));
+      row.appendChild(input); row.appendChild(btn); wrap.appendChild(row); wrap.appendChild(dl);
+      return wrap;
     } else if (f.t === "keys") {
       const keys = [["general", T("General")], ["sound", T("Sound")], ["light", T("Light")], ["video", T("Video")], ["stage", T("Stage")], ["other", T("Other trades")]];
       const row = document.createElement("div"); row.className = "d-flex flex-wrap gap-2";
@@ -867,7 +902,7 @@
     }
     if (final) {
       commit();
-      if (["props.style", "name", "locked", "visible", "props.field", "props.notes_filter"].includes(f.k)) renderProps();
+      if (["props.style", "name", "locked", "visible", "props.field", "props.notes_filter", "props.on_loss"].includes(f.k)) renderProps();
     } else if (f.k === "w" || f.k === "h") renderPropsValues();
   }
 
@@ -996,6 +1031,10 @@
   }
   $("btn-erm").addEventListener("click", (ev) => { ev.stopPropagation(); if (E.scene) ermMenu(ev.currentTarget); });
 
+  async function loadNdiSources() {
+    try { E.ndiSources = (await ESS.api("/api/ndi/sources")).sources; } catch (e) { E.ndiSources = []; }
+  }
+
   let liveErm = null;
   async function loadErm() {
     if (!E.meta) return;
@@ -1106,6 +1145,7 @@
     try {
       const [fonts, , info] = await Promise.all([ESS.api("/api/fonts"), loadMedia(), ESS.api("/api/system/time")]);
       E.fonts = fonts;
+      loadNdiSources();
       stage.ctx.timezone = info.timezone;
       await loadList();
       let last = null;

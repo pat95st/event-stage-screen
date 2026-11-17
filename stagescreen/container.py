@@ -23,6 +23,7 @@ from .infrastructure.erm import ErmService
 from .infrastructure.events import EventHub
 from .infrastructure.logs import ring
 from .infrastructure.media import MediaStore
+from .infrastructure.ndi import NdiService
 from .infrastructure.network import NetworkService
 from .infrastructure.privileged import NullRunner, PrivilegedRunner, SudoHelper
 from .infrastructure.repositories import (
@@ -71,6 +72,8 @@ class Services:
         self.network = network or NetworkService(self.privileged)
         self.events = EventHub()
         self.erm = ErmService(self.settings, self.notify_change)
+        self.ndi = NdiService(self.settings, self.ndi_limit, Path(os.environ.get("HOME") or config.data_dir),
+                              allow_test_sources=config.ndi_test_sources)
 
         self.commands = CommandBus()
         self.queries = QueryBus()
@@ -162,12 +165,14 @@ class Services:
         ring().listeners.append(lambda e: self.events.publish_threadsafe("log", e))
         self._status_task = asyncio.create_task(self._status_loop(), name="ess-status")
         self.erm.start()
+        await asyncio.to_thread(self.ndi.write_ndi_config)
         log.info("event-stage-screen started on %s – web interface on port %d", self.model, self.config.port)
 
     async def shutdown(self) -> None:
         if self._status_task:
             self._status_task.cancel()
         self.erm.stop()
+        self.ndi.shutdown()
         self.db.close()
 
     async def _status_loop(self) -> None:

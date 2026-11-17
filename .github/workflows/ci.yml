@@ -23,5 +23,5 @@ jobs:
         run: pytest -q
       - name: Shell syntax
         run: |
-          for f in deploy/install.sh scripts/*.sh; do bash -n "$f"; done
+          for f in deploy/install.sh deploy/install-ndi.sh scripts/*.sh; do bash -n "$f"; done
           sh -n deploy/kiosk-session.sh

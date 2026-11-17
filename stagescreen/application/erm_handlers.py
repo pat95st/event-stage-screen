@@ -1,4 +1,4 @@
-"""Handlers for the eventrentmanager connection."""
+"""Handlers for the external sources: eventrentmanager connection and NDI."""
 
 from __future__ import annotations
 
@@ -75,7 +75,29 @@ def register_erm_handlers(commands: CommandBus, queries: QueryBus, s: Services) 
         data["now_ms"] = round(time.time() * 1000)  # lets remote browsers correct their own clock
         return data
 
-    for message, handler in [(c.SaveErmSettings, save_settings), (c.SetErmToken, set_token), (c.TestErmConnection, test)]:
+    # ------------------------------------------------------------ NDI
+
+    def ndi_discovery(cmd: c.SetNdiDiscoveryServers) -> list[str]:
+        servers = s.ndi.set_discovery_servers([str(x) for x in cmd.servers])
+        log.info("NDI discovery servers: %s", ", ".join(servers) or "none (mDNS only)")
+        s.notify_change("ndi")
+        return servers
+
+    def ndi_status(_: q.GetNdiStatus) -> dict[str, Any]:
+        st = s.ndi.status()
+        st["model_family"] = s.model_family
+        return st
+
+    async def ndi_sources(_: q.GetNdiSources) -> dict[str, Any]:
+        import asyncio
+
+        if not s.ndi.available():
+            return {"sources": [], "available": False}
+        return {"sources": await asyncio.to_thread(s.ndi.discover), "available": True}
+
+    for message, handler in [(c.SaveErmSettings, save_settings), (c.SetErmToken, set_token), (c.TestErmConnection, test),
+                             (c.SetNdiDiscoveryServers, ndi_discovery)]:
         commands.register(message, handler)
-    for message, handler in [(q.GetErmStatus, status), (q.GetRenderErm, render_erm)]:
+    for message, handler in [(q.GetErmStatus, status), (q.GetRenderErm, render_erm),
+                             (q.GetNdiStatus, ndi_status), (q.GetNdiSources, ndi_sources)]:
         queries.register(message, handler)

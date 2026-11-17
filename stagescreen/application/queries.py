@@ -94,3 +94,13 @@ class GetErmStatus(Query):
 @dataclass
 class GetRenderErm(Query):
     output_id: int
+
+
+@dataclass
+class GetNdiStatus(Query):
+    pass
+
+
+@dataclass
+class GetNdiSources(Query):
+    pass

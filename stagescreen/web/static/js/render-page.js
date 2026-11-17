@@ -80,7 +80,8 @@
     const layer = document.createElement("div");
     layer.className = "layer";
     frame.appendChild(layer);
-    const stage = SceneRender.createStage(layer, { mediaUrl, timezone: state.timezone, locale: state.locale || "en", erm });
+    const stage = SceneRender.createStage(layer, { mediaUrl, timezone: state.timezone, locale: state.locale || "en", erm,
+      ndiMode: "stream", ndiQuery: token ? "&k=" + encodeURIComponent(token) : "" });
     stage.render(scene);
     return { layer, stage };
   }

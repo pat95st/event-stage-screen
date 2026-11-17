@@ -2,7 +2,8 @@
 # event-stage-screen installer for Raspberry Pi OS (Bookworm or newer, 64-bit).
 #
 #   git clone https://github.com/pat95st/event-stage-screen.git && cd event-stage-screen
-#   sudo ./deploy/install.sh
+#   sudo ./deploy/install.sh              # without NDI
+#   sudo ./deploy/install.sh --with-ndi   # also runs deploy/install-ndi.sh
 #
 # Re-running the script updates an existing installation; data is kept.
 set -euo pipefail
@@ -14,6 +15,8 @@ HELPER_DIR=/usr/local/lib/event-stage-screen
 SERVICE=event-stage-screen.service
 KIOSK_SERVICE=event-stage-screen-kiosk.service
 SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+WITH_NDI=0
+[[ "${1:-}" == "--with-ndi" ]] && WITH_NDI=1
 
 say() { printf '==> %s\n' "$*"; }
 
@@ -25,7 +28,8 @@ fi
 say "System packages"
 apt-get update -qq
 apt-get install -y -qq python3 python3-venv curl rsync sudo network-manager \
-  sway wlr-randr fonts-dejavu-core
+  sway wlr-randr fonts-dejavu-core \
+  python3-gi gir1.2-gstreamer-1.0 gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good
 if apt-cache show chromium >/dev/null 2>&1; then
   apt-get install -y -qq chromium
 else
@@ -48,7 +52,11 @@ rsync -a --delete \
   "$SRC_DIR/" "$APP_DIR/"
 
 say "Python environment"
-python3 -m venv "$APP_DIR/.venv"
+# system site packages: the GStreamer bindings (python3-gi) come from Debian
+if [[ -f "$APP_DIR/.venv/pyvenv.cfg" ]] && grep -q "include-system-site-packages = false" "$APP_DIR/.venv/pyvenv.cfg"; then
+  rm -rf "$APP_DIR/.venv"
+fi
+python3 -m venv --system-site-packages "$APP_DIR/.venv"
 "$APP_DIR/.venv/bin/pip" install -q --upgrade pip
 "$APP_DIR/.venv/bin/pip" install -q -r "$APP_DIR/requirements.txt"
 
@@ -93,8 +101,15 @@ systemctl enable "$SERVICE" "$KIOSK_SERVICE" >/dev/null
 systemctl restart "$SERVICE"
 systemctl restart "$KIOSK_SERVICE"
 
+if [[ $WITH_NDI -eq 1 ]]; then
+  bash "$APP_DIR/deploy/install-ndi.sh"
+fi
+
 PORT="$(grep -E '^ESS_PORT=' "$ENV_FILE" | cut -d= -f2)"
 echo
 echo "Done. Web interface: http://$(hostname -I | awk '{print $1}'):${PORT:-8080}/"
 echo "              or     http://$(hostname).local:${PORT:-8080}/"
 echo "The administrator account is created on the first visit."
+if ! grep -q '^NDI_RUNTIME_DIR_V6=' "$ENV_FILE"; then
+  echo "NDI support is not installed yet: sudo ./deploy/install-ndi.sh"
+fi

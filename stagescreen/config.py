@@ -26,6 +26,8 @@ class AppConfig:
     helper_path: str = DEFAULT_HELPER
     # Directory with DRM connectors (status/modes files), overridable for tests.
     drm_dir: Path = Path("/sys/class/drm")
+    # Offer GStreamer test patterns as NDI sources (development and tests only).
+    ndi_test_sources: bool = False
 
     @property
     def db_path(self) -> Path:
@@ -62,4 +64,5 @@ class AppConfig:
             system_backend=os.environ.get("ESS_SYSTEM_BACKEND", "sudo"),
             helper_path=os.environ.get("ESS_HELPER", DEFAULT_HELPER),
             drm_dir=Path(os.environ.get("ESS_DRM_DIR", "/sys/class/drm")),
+            ndi_test_sources=os.environ.get("ESS_NDI_TEST_SOURCES") == "1",
         )

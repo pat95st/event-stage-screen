@@ -17,11 +17,11 @@ in a Bootstrap-based web application on the device.
 | 2. Skeleton: web UI, login, settings, installer, CI | done |
 | 3. Renderer and scene editor | done |
 | 4. eventrentmanager integration | done |
-| 5. NDI | next |
-| 6. Automation, API, setup aids, updates | open |
+| 5. NDI (MJPEG transport) | done |
+| 6. Automation, API, setup aids, updates | next |
 
 The web interface currently offers: a scene editor (text, image, clock,
-colour and eventrentmanager elements – countdown, progress, current/next item,
+colour, NDI and eventrentmanager elements – countdown, progress, current/next item,
 trade notes, delay, messages, no-strobe banner, item list and more, plus a
 "full stage display" quick start; move, resize, rotate, flip, crop, opacity, layers, lock,
 snapping, undo/redo; draft + apply or live editing; import/export), a media
@@ -47,6 +47,14 @@ cd event-stage-screen && sudo ./deploy/install.sh
 The installer sets up two services: the web service and the kiosk display
 (sway + Chromium on tty1, one full-screen window per HDMI port). A desktop
 display manager is disabled, because the Pi becomes a dedicated display.
+
+NDI support is optional and installed separately, because the NDI SDK is
+proprietary: the script downloads it from the NDI website and asks you to
+accept the NDI license.
+
+```bash
+sudo ./deploy/install-ndi.sh
+```
 
 Then open `http://<ip-address>:8080/` (or `http://<hostname>.local:8080/`) and
 create the administrator account. Re-running `install.sh` updates an existing

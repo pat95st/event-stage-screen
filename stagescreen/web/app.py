@@ -47,7 +47,7 @@ HERE = Path(__file__).parent
 
 PUBLIC_PATHS = ("/login", "/setup", "/static/", "/api/auth/", "/api/health")
 # Reachable with the kiosk token (render pages in the kiosk browser) or a session.
-KIOSK_PATHS = ("/render/", "/api/render/", "/media/", "/api/fonts.css")
+KIOSK_PATHS = ("/render/", "/api/render/", "/media/", "/api/fonts.css", "/ndi/")
 # Reachable with the kiosk token only (kiosk agent).
 KIOSK_ONLY_PATHS = ("/api/kiosk/",)
 KIOSK_HEADER = "x-ess-kiosk"
@@ -323,6 +323,37 @@ def create_app(services: Services) -> Starlette:
         return StreamingResponse(gen(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    def _ndi_hub(request: Request):
+        from ..infrastructure.ndi import StreamFormat
+
+        qp = request.query_params
+        fmt = StreamFormat.from_params(qp.get("res"), qp.get("fps"), qp.get("q"))
+        return s.ndi.hub(qp.get("source") or "", fmt)
+
+    async def ndi_stream(request: Request) -> Response:
+        try:
+            hub = _ndi_hub(request)
+        except DomainError as exc:
+            return JSONResponse({"error": t(text_of(exc))}, status_code=exc.status)
+        return StreamingResponse(hub.frames(), media_type="application/octet-stream",
+                                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+
+    async def ndi_snapshot(request: Request) -> Response:
+        try:
+            hub = _ndi_hub(request)
+        except DomainError as exc:
+            return JSONResponse({"error": t(text_of(exc))}, status_code=exc.status)
+        hub.lease(10)
+        for _ in range(30):  # wait up to 3 s for the first frame
+            if hub.jpeg:
+                break
+            await asyncio.sleep(0.1)
+        if not hub.jpeg:
+            return JSONResponse({"error": t(hub.error or "No signal")}, status_code=503)
+        age = time.time() - hub.last_frame_at
+        return Response(hub.jpeg, media_type="image/jpeg",
+                        headers={"Cache-Control": "no-store", "X-Frame-Age": f"{age:.1f}"})
+
     async def api_kiosk_report(request: Request) -> Response:
         data = await body(request)
         await s.commands.dispatch(c.ReportKioskState(data))
@@ -417,6 +448,14 @@ def create_app(services: Services) -> Starlette:
         Route("/api/erm/test", command(lambda r, d: c.TestErmConnection(str(d.get("base_url") or ""), bool(d.get("verify_tls", True)),
                                                                         d.get("token") or None, _opt_int(d.get("output_id")))), methods=["POST"]),
         Route("/api/render/{n:int}/erm", query(lambda r: q.GetRenderErm(p(r, "n")))),
+
+        # NDI
+        Route("/ndi", page("ndi.html", "ndi", "NDI")),
+        Route("/api/ndi", query(lambda r: q.GetNdiStatus())),
+        Route("/api/ndi/sources", query(lambda r: q.GetNdiSources())),
+        Route("/api/ndi/settings", command(lambda r, d: c.SetNdiDiscoveryServers([str(x) for x in d.get("discovery_servers") or []])), methods=["POST"]),
+        Route("/ndi/stream", ndi_stream),
+        Route("/ndi/snapshot", ndi_snapshot),
 
         # render pages and kiosk agent
         Route("/api/render/stream", api_render_stream),

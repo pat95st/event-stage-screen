@@ -19,7 +19,9 @@ from typing import Any
 from ..application.bus import DomainError
 from ..i18n import Msg
 
-ELEMENT_TYPES = ("text", "image", "clock", "color", "erm")
+ELEMENT_TYPES = ("text", "image", "clock", "color", "erm", "ndi")
+NDI_LOSS_MODES = ("freeze_then_transparent", "freeze", "black", "transparent", "placeholder")
+NDI_SOURCE_RE = re.compile(r"^[^\x00-\x1f\"]{0,200}$")
 ERM_FIELDS = ("countdown", "progress", "current", "description", "notes", "next", "delay", "messages",
               "nostrobe", "itemlist", "mics", "program", "status")
 NOTE_KEYS = ("general", "sound", "light", "video", "stage", "other")
@@ -168,6 +170,20 @@ def _props(kind: str, p: dict[str, Any]) -> dict[str, Any]:
                 keys = value if isinstance(value, list) else default
                 props[key] = [k for k in NOTE_KEYS if k in keys]
         return props
+    if kind == "ndi":
+        source = str(p.get("source") or "").strip()
+        if not NDI_SOURCE_RE.fullmatch(source):
+            raise DomainError("Invalid NDI source name")
+        return {
+            "source": source,
+            "resolution": _choice(p.get("resolution"), ("native", "1080", "720", "540", "360"), "1080", "Resolution"),
+            "fps": _int(p.get("fps"), 30, 1, 60, "Frame rate"),
+            "quality": _int(p.get("quality"), 80, 10, 100, "JPEG quality"),
+            "fit": _choice(p.get("fit"), ("contain", "cover", "fill"), "contain", "Fit"),
+            "on_loss": _choice(p.get("on_loss"), NDI_LOSS_MODES, "freeze_then_transparent", "On signal loss"),
+            "loss_timeout": _int(p.get("loss_timeout"), 5, 1, 120, "Timeout"),
+            "placeholder_text": _text(p.get("placeholder_text"), "", 60, "Placeholder text"),
+        }
     if kind == "image":
         media_id = p.get("media_id") or None
         if media_id is not None and not (isinstance(media_id, str) and ID_RE.fullmatch(media_id)):
@@ -260,6 +276,10 @@ def empty_scene(width: int = 1920, height: int = 1080) -> dict[str, Any]:
 def media_ids(scene: dict[str, Any]) -> set[str]:
     """Media referenced by a scene (images)."""
     return {e["props"]["media_id"] for e in scene.get("elements", []) if e["type"] == "image" and e["props"].get("media_id")}
+
+
+def ndi_sources(scene: dict[str, Any]) -> set[str]:
+    return {e["props"]["source"] for e in scene.get("elements", []) if e["type"] == "ndi" and e["props"].get("source")}
 
 
 def fonts_used(scene: dict[str, Any]) -> set[str]:

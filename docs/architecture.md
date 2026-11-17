@@ -71,6 +71,34 @@ data; "Full stage display" inserts the `/display` layout as individual elements.
 For tests and local development `tests/fake_erm.py` serves a realistic Display
 API (`python -m tests.fake_erm --port 8099`).
 
+## NDI
+
+`infrastructure/ndi.py` turns NDI sources into MJPEG streams with GStreamer
+(PyGObject): `ndisrc ! ndisrcdemux ! videoconvert ! videoscale ! videorate !
+jpegenc ! appsink`. One pipeline (`MjpegHub`) exists per source and stream
+format (resolution, frame rate, JPEG quality) and is shared by all viewers; it
+starts with the first viewer, stops 5 s after the last one and restarts with
+back-off when the source disappears. The number of simultaneous sources is
+limited (`ndi.max_sources`, default 1 on a Pi 4 and 4 on a Pi 5).
+
+- `GET /ndi/stream?source=…&res=…&fps=…&q=…` – framed JPEGs (`uint32 length,
+  float64 capture time in ms, JPEG`); the render page draws the newest frame on
+  a canvas and skips frames while decoding, so latency does not build up.
+- `GET /ndi/snapshot?…` – the latest JPEG (the editor polls about once per second).
+- Discovery: mDNS through the GStreamer NDI device provider, plus optional NDI
+  discovery servers written to `~/.ndi/ndi-config.v1.json` of the service user.
+- On signal loss the element follows `on_loss` (default: freeze the last frame,
+  transparent after `loss_timeout` seconds). When a scene is re-rendered, NDI
+  elements with unchanged settings keep their running stream.
+
+GStreamer and the NDI plugin are optional. `deploy/install-ndi.sh` downloads
+the NDI SDK (the vendor installer shows the license), keeps only the runtime
+library in `/usr/local/lib/event-stage-screen/ndi`, installs or builds the
+GStreamer NDI plugin (gst-plugins-rs) and registers both in
+`/etc/event-stage-screen.env`. With `ESS_NDI_TEST_SOURCES=1` GStreamer test
+patterns (`test:smpte`, `test:ball`, …) are offered as sources for
+development and tests. WebRTC as an alternative transport may follow later.
+
 ## Kiosk
 
 `event-stage-screen-kiosk.service` opens a logind session on tty1 for the
@@ -131,5 +159,7 @@ Environment variables (`/etc/event-stage-screen.env`):
 | `ESS_HELPER` | `/usr/local/lib/event-stage-screen/ess-helper` | Path of the root helper |
 | `ESS_DRM_DIR` | `/sys/class/drm` | DRM sysfs (HDMI connector detection) |
 | `ESS_LOG_LEVEL` | `INFO` | Log level |
+| `ESS_NDI_TEST_SOURCES` | – | `1` offers GStreamer test patterns as NDI sources (development) |
+| `GST_PLUGIN_PATH`, `NDI_RUNTIME_DIR_V6` | – | Set by `deploy/install-ndi.sh` |
 
 Everything else is stored in SQLite and edited in the web UI.

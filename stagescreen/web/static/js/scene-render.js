@@ -113,6 +113,9 @@
       span.style.overflowWrap = "anywhere";
       span.textContent = p.text;
       node.appendChild(span);
+    } else if (el.type === "ndi") {
+      ctx.ndiNodes.push(node);
+      if (SR.renderNdi) SR.renderNdi(node, el, ctx);
     } else if (el.type === "erm") {
       node._erm = el;
       ctx.ermNodes.push(node);
@@ -224,8 +227,8 @@
     const ctx = {
       mediaUrl: opts.mediaUrl || ((id) => "/media/" + id),
       timezone: opts.timezone, locale: opts.locale || "en",
-      now: opts.now || (() => Date.now()), editor: !!opts.editor, t: opts.t, clocks: [], ermNodes: [],
-      erm: opts.erm || {},
+      now: opts.now || (() => Date.now()), editor: !!opts.editor, t: opts.t, clocks: [], ermNodes: [], ndiNodes: [],
+      erm: opts.erm || {}, ndiMode: opts.ndiMode || "stream", ndiQuery: opts.ndiQuery || "",
     };
     const root = document.createElement("div");
     root.className = "sr-stage";
@@ -235,26 +238,37 @@
     const timer = setInterval(() => {
       ctx.clocks.forEach((n) => updateClock(n, ctx));
       ctx.ermNodes.forEach((n) => { if (n._tick) n._tick(); });
+      ctx.ndiNodes.forEach((n) => { if (n._tick) n._tick(); });
     }, 250);
+    const dispose = (nodes) => nodes.forEach((n) => { if (n._dispose) n._dispose(); });
 
     const stage = {
       root, ctx,
       get scene() { return scene; },
       render(next) {
         scene = next;
+        const reuse = new Map();
+        ctx.ndiNodes.forEach((n) => { if (n._ndiKey) reuse.set(n._ndiKey, (reuse.get(n._ndiKey) || []).concat([n])); });
+        ctx.ndiReuse = reuse;
         ctx.clocks = [];
         ctx.ermNodes = [];
+        ctx.ndiNodes = [];
         root.innerHTML = "";
         root.style.width = scene.width + "px";
         root.style.height = scene.height + "px";
         root.style.background = scene.background;
-        scene.elements.forEach((el) => root.appendChild(elementNode(el, ctx)));
+        const fresh = scene.elements.map((el) => elementNode(el, ctx));
+        reuse.forEach((list) => dispose(list));  // streams no longer used
+        ctx.ndiReuse = null;
+        fresh.forEach((n) => root.appendChild(n));
       },
       /** Replace one element (e.g. after a property change). */
       patch(el) {
         const old = root.querySelector(`.sr-el[data-id="${CSS.escape(el.id)}"]`);
         ctx.clocks = ctx.clocks.filter((n) => !old || !old.contains(n));
         ctx.ermNodes = ctx.ermNodes.filter((n) => !old || !old.contains(n));
+        if (old) dispose(ctx.ndiNodes.filter((n) => old.contains(n)));
+        ctx.ndiNodes = ctx.ndiNodes.filter((n) => !old || !old.contains(n));
         const node = elementNode(el, ctx);
         if (old) old.replaceWith(node); else root.appendChild(node);
         return node;
@@ -275,7 +289,7 @@
         root.style.transform = `translate(${x}px, ${y}px) scale(${sx}, ${sy})`;
         return { scale: Math.min(sx, sy), sx, sy, x, y };
       },
-      destroy() { clearInterval(timer); root.remove(); },
+      destroy() { clearInterval(timer); dispose(ctx.ndiNodes); ctx.ndiNodes = []; root.remove(); },
     };
     return stage;
   };

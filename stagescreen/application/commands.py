@@ -218,3 +218,10 @@ class TestErmConnection(Command):
     verify_tls: bool = True
     token: str | None = None
     output_id: int | None = None
+
+
+# ------------------------------------------------------------------ NDI
+
+@dataclass
+class SetNdiDiscoveryServers(Command):
+    servers: list[str] = field(default_factory=list)
