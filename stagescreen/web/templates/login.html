@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="login-wrap">
+  <div class="login-card ess-panel">
+    <div class="ess-panel-body p-4">
+      <div class="ess-brand mb-1 fs-5"><span class="logo"></span>event-stage-screen</div>
+      <p class="text-dim mb-4">{{ _("Log in to the web interface") }}</p>
+      <form id="login-form" autocomplete="on">
+        <div class="mb-3"><label class="form-label" for="u">{{ _("User name") }}</label><input class="form-control" id="u" name="username" autocomplete="username" required autofocus></div>
+        <div class="mb-3"><label class="form-label" for="pw">{{ _("Password") }}</label><input class="form-control" id="pw" name="password" type="password" autocomplete="current-password" required></div>
+        <div class="text-danger small mb-2" id="err" role="alert"></div>
+        <button class="btn btn-primary w-100" type="submit">{{ _("Log in") }}</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById("login-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = document.getElementById("err");
+  err.textContent = "";
+  try {
+    await ESS.api("/api/auth/login", { username: e.target.username.value, password: e.target.password.value });
+    const next = new URLSearchParams(location.search).get("next");
+    location.href = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
+  } catch (ex) { err.textContent = ex.message; }
+});
+</script>
+{% endblock %}

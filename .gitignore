@@ -6,3 +6,7 @@ __pycache__/
 # Spike (milestone 1)
 prototype/.ndi/
 prototype/data/
+
+# Downloaded by scripts/fetch-vendor.sh
+stagescreen/web/static/vendor/
+data/

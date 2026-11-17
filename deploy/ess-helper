@@ -1,0 +1,246 @@
+#!/usr/bin/python3
+"""Root helper for event-stage-screen.
+
+Installed root-owned to /usr/local/lib/event-stage-screen/ess-helper and
+called by the web service (user ``ess``) via ``sudo -n``. This script is the
+security boundary: it accepts only a fixed set of actions and validates every
+argument itself, independent of the web application.
+
+Actions:
+    set-hostname NAME
+    set-timezone ZONE
+    set-ntp [SERVER ...]                (no servers = system default)
+    reboot | poweroff
+    net-checkpoint SECONDS              prints the checkpoint object path
+    net-confirm CHECKPOINT
+    net-rollback CHECKPOINT
+    net-ipv4 DEVICE auto [DNS ...]
+    net-ipv4 DEVICE manual ADDRESS/PREFIX GATEWAY|- [DNS ...]
+    net-wifi DEVICE SSID                password (may be empty) on stdin
+"""
+
+import ipaddress
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
+NTP_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$")
+DEVICE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,15}$")
+CHECKPOINT_RE = re.compile(r"^/org/freedesktop/NetworkManager/Checkpoint/\d{1,6}$")
+NTP_DROPIN = Path("/etc/systemd/timesyncd.conf.d/event-stage-screen.conf")
+NM = ("org.freedesktop.NetworkManager", "/org/freedesktop/NetworkManager", "org.freedesktop.NetworkManager")
+# Checkpoint flags: DESTROY_ALL (1) | DELETE_NEW_CONNECTIONS (2)
+CHECKPOINT_FLAGS = "3"
+
+
+class HelperError(Exception):
+    pass
+
+
+def run(cmd, stdin=None):
+    proc = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=80,
+                          env={"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "LC_ALL": "C"})
+    if proc.returncode != 0:
+        raise HelperError((proc.stderr or proc.stdout).strip() or "%s failed" % cmd[0])
+    return proc.stdout
+
+
+def need(args, count, usage):
+    if len(args) != count:
+        raise HelperError("usage: " + usage)
+
+
+# ---------------------------------------------------------------- system
+
+def set_hostname(args):
+    need(args, 1, "set-hostname NAME")
+    name = args[0]
+    if not HOSTNAME_RE.fullmatch(name):
+        raise HelperError("invalid host name")
+    run(["hostnamectl", "set-hostname", name])
+    hosts = Path("/etc/hosts")
+    lines = hosts.read_text().splitlines()
+    out, done = [], False
+    for line in lines:
+        if line.startswith("127.0.1.1"):
+            if not done:
+                out.append("127.0.1.1\t" + name)
+                done = True
+            continue
+        out.append(line)
+    if not done:
+        out.append("127.0.1.1\t" + name)
+    hosts.write_text("\n".join(out) + "\n")
+    subprocess.run(["systemctl", "try-restart", "avahi-daemon"], capture_output=True)
+
+
+def set_timezone(args):
+    need(args, 1, "set-timezone ZONE")
+    zones = run(["timedatectl", "list-timezones"]).split()
+    if args[0] not in zones:
+        raise HelperError("unknown time zone")
+    run(["timedatectl", "set-timezone", args[0]])
+
+
+def set_ntp(args):
+    if len(args) > 8 or not all(NTP_RE.fullmatch(a) for a in args):
+        raise HelperError("invalid NTP server list")
+    if args:
+        NTP_DROPIN.parent.mkdir(parents=True, exist_ok=True)
+        NTP_DROPIN.write_text("# Managed by event-stage-screen\n[Time]\nNTP=%s\n" % " ".join(args))
+    elif NTP_DROPIN.exists():
+        NTP_DROPIN.unlink()
+    run(["timedatectl", "set-ntp", "true"])
+    run(["systemctl", "restart", "systemd-timesyncd"])
+
+
+def reboot(args):
+    need(args, 0, "reboot")
+    run(["systemctl", "reboot"])
+
+
+def poweroff(args):
+    need(args, 0, "poweroff")
+    run(["systemctl", "poweroff"])
+
+
+# ---------------------------------------------------------------- network
+
+def busctl(method, signature, *values):
+    return run(["busctl", "call", *NM, method, signature, *values])
+
+
+def net_checkpoint(args):
+    need(args, 1, "net-checkpoint SECONDS")
+    if not args[0].isdigit() or not 10 <= int(args[0]) <= 600:
+        raise HelperError("invalid rollback timeout")
+    # CheckpointCreate(ao devices, u rollback_timeout, u flags); no devices = all
+    out = busctl("CheckpointCreate", "aouu", "0", args[0], CHECKPOINT_FLAGS)
+    match = re.search(r'"(/org/freedesktop/NetworkManager/Checkpoint/\d+)"', out)
+    if not match:
+        raise HelperError("could not create a network checkpoint")
+    print(match.group(1))
+
+
+def checkpoint_arg(args, usage):
+    need(args, 1, usage)
+    if not CHECKPOINT_RE.fullmatch(args[0]):
+        raise HelperError("invalid checkpoint")
+    return args[0]
+
+
+def net_confirm(args):
+    busctl("CheckpointDestroy", "o", checkpoint_arg(args, "net-confirm CHECKPOINT"))
+
+
+def net_rollback(args):
+    busctl("CheckpointRollback", "o", checkpoint_arg(args, "net-rollback CHECKPOINT"))
+
+
+def known_device(name):
+    if not DEVICE_RE.fullmatch(name):
+        raise HelperError("invalid device")
+    for line in run(["nmcli", "-t", "-f", "DEVICE,TYPE", "device"]).splitlines():
+        dev, _, dev_type = line.partition(":")
+        if dev == name and dev_type in ("ethernet", "wifi"):
+            return dev_type
+    raise HelperError("unknown device")
+
+
+def connection_of(device, dev_type):
+    out = run(["nmcli", "-g", "GENERAL.CONNECTION", "device", "show", device]).strip()
+    if out and out != "--":
+        return out
+    if dev_type != "ethernet":
+        raise HelperError("the Wi-Fi interface is not connected")
+    name = "ess-" + device
+    run(["nmcli", "connection", "add", "type", "ethernet", "ifname", device, "con-name", name])
+    return name
+
+
+def parse_dns(values):
+    try:
+        return [str(ipaddress.ip_address(v)) for v in values[:4]]
+    except ValueError:
+        raise HelperError("invalid DNS server") from None
+
+
+def net_ipv4(args):
+    if len(args) < 2:
+        raise HelperError("usage: net-ipv4 DEVICE auto|manual ...")
+    device, method, rest = args[0], args[1], args[2:]
+    dev_type = known_device(device)
+    con = connection_of(device, dev_type)
+    if method == "auto":
+        dns = parse_dns(rest)
+        settings = ["ipv4.method", "auto", "ipv4.addresses", "", "ipv4.gateway", ""]
+    elif method == "manual":
+        if len(rest) < 2:
+            raise HelperError("usage: net-ipv4 DEVICE manual ADDRESS/PREFIX GATEWAY|- [DNS ...]")
+        try:
+            iface = ipaddress.IPv4Interface(rest[0])
+            gateway = "" if rest[1] == "-" else str(ipaddress.IPv4Address(rest[1]))
+        except ValueError:
+            raise HelperError("invalid address") from None
+        if iface.network.prefixlen in (0, 32):
+            raise HelperError("invalid prefix")
+        dns = parse_dns(rest[2:])
+        settings = ["ipv4.method", "manual", "ipv4.addresses", str(iface), "ipv4.gateway", gateway]
+    else:
+        raise HelperError("invalid method")
+    settings += ["ipv4.dns", " ".join(dns), "ipv4.ignore-auto-dns", "yes" if dns else "no"]
+    run(["nmcli", "connection", "modify", con, *settings])
+    run(["nmcli", "connection", "up", con])
+
+
+def net_wifi(args):
+    need(args, 2, "net-wifi DEVICE SSID")
+    device, ssid = args
+    if known_device(device) != "wifi":
+        raise HelperError("not a Wi-Fi interface")
+    if not 1 <= len(ssid.encode()) <= 32 or any(ord(ch) < 32 for ch in ssid):
+        raise HelperError("invalid SSID")
+    password = sys.stdin.readline().rstrip("\n")
+    if password and not 8 <= len(password) <= 63:
+        raise HelperError("invalid Wi-Fi password")
+    run(["nmcli", "radio", "wifi", "on"])
+    cmd = ["nmcli", "device", "wifi", "connect", ssid, "ifname", device]
+    if password:
+        cmd += ["password", password]
+    run(cmd)
+
+
+ACTIONS = {
+    "set-hostname": set_hostname,
+    "set-timezone": set_timezone,
+    "set-ntp": set_ntp,
+    "reboot": reboot,
+    "poweroff": poweroff,
+    "net-checkpoint": net_checkpoint,
+    "net-confirm": net_confirm,
+    "net-rollback": net_rollback,
+    "net-ipv4": net_ipv4,
+    "net-wifi": net_wifi,
+}
+
+
+def main(argv):
+    if len(argv) < 2 or argv[1] not in ACTIONS:
+        print("unknown action", file=sys.stderr)
+        return 2
+    if os.geteuid() != 0 and os.environ.get("ESS_HELPER_TEST") != "1":
+        print("must run as root", file=sys.stderr)
+        return 1
+    try:
+        ACTIONS[argv[1]](argv[2:])
+    except (HelperError, subprocess.SubprocessError, OSError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

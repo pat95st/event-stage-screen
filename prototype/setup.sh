@@ -23,7 +23,7 @@ pkg_available() { apt-cache show "$1" >/dev/null 2>&1; }
 say "Installing system packages"
 sudo apt-get update
 PKGS=(
-  labwc wlr-randr curl
+  sway wlr-randr curl
   python3 python3-venv python3-gi python3-psutil
   gir1.2-gstreamer-1.0 gir1.2-gst-plugins-base-1.0 gir1.2-gst-plugins-bad-1.0
   gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good

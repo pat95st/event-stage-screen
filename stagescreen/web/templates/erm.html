@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-xl-5">
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Server") }}</span></div>
+      <div class="ess-panel-body">
+        <form id="srv-form" class="row g-2">
+          <div class="col-12"><label class="form-label">{{ _("Address of eventrentmanager") }}</label>
+            <input class="form-control mono" name="base_url" placeholder="https://verleih.example.de"></div>
+          <div class="col-12">
+            <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="verify_tls" id="verify_tls">
+              <label class="form-check-label" for="verify_tls">{{ _("Verify TLS certificate") }}</label></div>
+            <div class="form-text text-warning" id="tls-warning" hidden>{{ _("Only switch this off for servers in your own network with a self-signed certificate.") }}</div>
+          </div>
+          <div class="col-12"><button class="btn btn-primary" type="submit">{{ _("Save") }}</button></div>
+        </form>
+      </div>
+    </div>
+    <div class="ess-panel mt-3">
+      <div class="ess-panel-head"><span>{{ _("How to connect") }}</span></div>
+      <div class="ess-panel-body small">
+        <ol class="mb-2 ps-3">
+          <li>{{ _("In eventrentmanager, open Settings › Stage & FOH displays and create one display per HDMI output.") }}</li>
+          <li>{{ _("Copy the display token (mvd_…) – it is only shown once – and enter it for the output here.") }}</li>
+          <li>{{ _("Which programme an output shows, its role and the trade notes are assigned centrally in eventrentmanager.") }}</li>
+        </ol>
+        <div class="text-dim">{{ _("Pairing with a short code will be available with a future eventrentmanager update.") }}</div>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-7 d-flex flex-column gap-3" id="outputs"></div>
+</div>
+<template id="tpl-out">
+  <form class="ess-panel out-form">
+    <div class="ess-panel-head"><span class="o-title"></span><span class="o-status small d-flex align-items-center gap-1"><span class="ess-dot"></span><span class="txt"></span></span></div>
+    <div class="ess-panel-body">
+      <div class="source-row mb-2">
+        <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="source" value="own"><label class="form-check-label">{{ _("Own display token") }}</label></div>
+        <div class="form-check form-check-inline"><input class="form-check-input" type="radio" name="source" value="output1"><label class="form-check-label">{{ _("Same data as output 1") }}</label></div>
+      </div>
+      <div class="token-row row g-2 align-items-end">
+        <div class="col-md-8"><label class="form-label">{{ _("Display token") }}</label>
+          <input class="form-control mono" name="token" autocomplete="off" spellcheck="false" placeholder="mvd_…"></div>
+        <div class="col-md-4 small text-dim pb-2 o-hint"></div>
+      </div>
+      <dl class="kv mt-3 mb-2 o-info"></dl>
+      <div class="small text-danger o-error"></div>
+      <div class="d-flex gap-2 mt-2 flex-wrap">
+        <button class="btn btn-primary" type="submit">{{ _("Save") }}</button>
+        <button class="btn btn-console" type="button" data-act="test">{{ _("Test connection") }}</button>
+        <button class="btn btn-outline-danger" type="button" data-act="remove">{{ _("Remove token") }}</button>
+      </div>
+    </div>
+  </form>
+</template>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const T = ESS.t, esc = ESS.esc;
+  const STATE_DOT = { online: "ok", connecting: "warn", offline: "err", unauthorized: "err", unconfigured: "" };
+  let data = null;
+
+  function render() {
+    const srv = document.getElementById("srv-form");
+    if (document.activeElement !== srv.elements.base_url) srv.elements.base_url.value = data.base_url;
+    srv.elements.verify_tls.checked = data.verify_tls;
+    document.getElementById("tls-warning").hidden = data.verify_tls;
+    const box = document.getElementById("outputs");
+    data.outputs.forEach((o) => {
+      let form = document.getElementById("erm-out-" + o.id);
+      if (!form) {
+        form = document.getElementById("tpl-out").content.firstElementChild.cloneNode(true);
+        form.id = "erm-out-" + o.id;
+        form.querySelector(".o-title").textContent = T("Output {n}", { n: o.id });
+        form.querySelectorAll("[name=source]").forEach((r) => { r.name = "source-" + o.id; r.checked = r.value === o.source; });
+        if (o.id !== 2) form.querySelector(".source-row").remove();
+        form.addEventListener("change", () => syncSource(form));
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const token = form.elements.token.value.trim();
+          await ESS.run(() => ESS.api(`/api/erm/outputs/${o.id}`, { token: token || null, source: sourceOf(form) }), T("Saved"));
+          form.elements.token.value = "";
+          load();
+        });
+        form.querySelector("[data-act=test]").addEventListener("click", async () => {
+          const srvF = document.getElementById("srv-form").elements;
+          const r = await ESS.run(() => ESS.api("/api/erm/test", { base_url: srvF.base_url.value, verify_tls: srvF.verify_tls.checked,
+            token: form.elements.token.value.trim() || null, output_id: o.id }));
+          ESS.toast(T("Connected: {name}", { name: r.display_name || "?" }) + (r.program ? " · " + r.program : ""), "ok");
+        });
+        form.querySelector("[data-act=remove]").addEventListener("click", async () => {
+          if (!ESS.confirm(T("Remove the display token of output {n}?", { n: o.id }))) return;
+          await ESS.run(() => ESS.api(`/api/erm/outputs/${o.id}`, { token: "", source: sourceOf(form) }), T("Removed"));
+          load();
+        });
+        box.appendChild(form);
+      }
+      const dot = form.querySelector(".o-status .ess-dot");
+      dot.className = "ess-dot " + (STATE_DOT[o.status] || "");
+      form.querySelector(".o-status .txt").textContent = o.status_text;
+      form.querySelector(".o-hint").textContent = o.token_hint ? T("Saved: {hint}", { hint: o.token_hint }) : T("No token saved");
+      const age = o.received_at ? Math.round(Date.now() / 1000 - o.received_at) : null;
+      const rows = [[T("Display"), o.display_name], [T("Role"), o.role], [T("Event"), o.event], [T("Programme"), o.program],
+                    [T("Last update"), age !== null ? T("{s} s ago", { s: Math.max(0, age) }) : null], [T("Poll interval"), o.poll_interval ? o.poll_interval + " s" : null]]
+        .filter((r) => r[1]);
+      form.querySelector(".o-info").innerHTML = rows.map((r) => `<dt>${esc(r[0])}</dt><dd>${esc(r[1])}</dd>`).join("");
+      form.querySelector(".o-error").textContent = o.message || "";
+      syncSource(form);
+    });
+  }
+  function sourceOf(form) {
+    const r = form.querySelector("input[type=radio]:checked");
+    return r ? r.value : "own";
+  }
+  function syncSource(form) {
+    const shared = sourceOf(form) === "output1";
+    form.querySelector(".token-row").hidden = shared;
+    form.querySelector("[data-act=remove]").hidden = shared;
+  }
+  async function load() { data = await ESS.api("/api/erm"); render(); }
+
+  document.getElementById("srv-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await ESS.run(() => ESS.api("/api/erm/settings", { base_url: e.target.base_url.value, verify_tls: e.target.verify_tls.checked }), T("Saved"));
+    load();
+  });
+  document.getElementById("verify_tls").addEventListener("change", (e) => { document.getElementById("tls-warning").hidden = e.target.checked; });
+  let timer = null;
+  ESS.on("changed", (d) => { if (d.topic === "erm") { clearTimeout(timer); timer = setTimeout(load, 200); } });
+  setInterval(load, 10000);
+  load().catch((e) => ESS.toast(e.message, "err"));
+})();
+</script>
+{% endblock %}

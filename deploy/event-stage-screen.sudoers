@@ -1,0 +1,3 @@
+# Installed to /etc/sudoers.d/event-stage-screen by deploy/install.sh.
+# The web service may run only the root helper, which validates all arguments.
+ess ALL=(root) NOPASSWD: /usr/local/lib/event-stage-screen/ess-helper

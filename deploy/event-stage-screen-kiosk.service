@@ -1,0 +1,28 @@
+[Unit]
+Description=event-stage-screen – kiosk display (sway + Chromium on the HDMI outputs)
+After=systemd-user-sessions.service event-stage-screen.service getty@tty1.service plymouth-quit-wait.service
+Wants=event-stage-screen.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+User=ess
+# A logind session on tty1 gives sway access to the display and input devices.
+PAMName=login
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+TTYVTDisallocate=yes
+StandardInput=tty-fail
+StandardOutput=journal
+StandardError=journal
+UtmpIdentifier=tty1
+UtmpMode=user
+EnvironmentFile=/etc/event-stage-screen.env
+WorkingDirectory=/opt/event-stage-screen
+ExecStart=/opt/event-stage-screen/deploy/kiosk-session.sh
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target

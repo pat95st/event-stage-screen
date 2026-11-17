@@ -1,0 +1,185 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-xl-6 d-flex flex-column gap-3">
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("System") }}</span></div>
+      <div class="ess-panel-body"><dl class="kv" id="info"></dl></div>
+    </div>
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Host name") }}</span></div>
+      <div class="ess-panel-body">
+        <form id="host-form" class="d-flex gap-2">
+          <input class="form-control mono" name="hostname" maxlength="63" pattern="[a-z0-9]([a-z0-9-]*[a-z0-9])?" required aria-label="{{ _('Host name') }}">
+          <button class="btn btn-console" type="submit">{{ _("Save") }}</button>
+        </form>
+        <div class="form-text">{{ _("Lowercase letters, digits and hyphens. The device can also be reached as <name>.local.") }}</div>
+      </div>
+    </div>
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Time") }}</span><span class="mono small" id="now"></span></div>
+      <div class="ess-panel-body">
+        <form id="tz-form" class="d-flex gap-2 mb-3">
+          <select class="form-select" name="timezone" aria-label="{{ _('Time zone') }}"></select>
+          <button class="btn btn-console" type="submit">{{ _("Save") }}</button>
+        </form>
+        <form id="ntp-form" class="row g-2">
+          <div class="col-12"><label class="form-label">{{ _("NTP servers") }}</label>
+            <input class="form-control mono" name="servers" placeholder="ntp.example.org, 192.168.1.1"></div>
+          <div class="col-12 d-flex align-items-center gap-3">
+            <button class="btn btn-console" type="submit">{{ _("Save") }}</button>
+            <span class="small text-dim" id="ntp-state"></span>
+          </div>
+          <div class="col-12 form-text">{{ _("Leave empty to use the operating system's default servers.") }}</div>
+        </form>
+      </div>
+    </div>
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Performance") }}</span></div>
+      <div class="ess-panel-body">
+        <form id="ndi-form" class="row g-2 align-items-end">
+          <div class="col-md-6"><label class="form-label">{{ _("Maximum simultaneous NDI sources") }}</label>
+            <input class="form-control" name="limit" type="number" min="0" max="8"></div>
+          <div class="col-md-6 d-flex gap-2">
+            <button class="btn btn-console" type="submit">{{ _("Save") }}</button>
+            <button class="btn btn-console" type="button" id="ndi-reset">{{ _("Default") }}</button>
+          </div>
+          <div class="col-12 form-text" id="ndi-help"></div>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-6 d-flex flex-column gap-3">
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Power") }}</span></div>
+      <div class="ess-panel-body d-flex gap-2 flex-wrap">
+        <button class="btn btn-console" id="btn-reboot">{{ _("Reboot") }}</button>
+        <button class="btn btn-outline-danger" id="btn-shutdown">{{ _("Shut down") }}</button>
+      </div>
+    </div>
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Backup") }}</span></div>
+      <div class="ess-panel-body">
+        <p class="small text-dim">{{ _("The backup contains all settings, scenes and the media library.") }}</p>
+        <div class="d-flex gap-2 flex-wrap align-items-center">
+          <a class="btn btn-console" href="/api/backup">{{ _("Download backup") }}</a>
+          <label class="btn btn-console mb-0">{{ _("Restore backup …") }}<input type="file" id="restore-file" accept=".zip,application/zip" hidden></label>
+        </div>
+        <div class="form-text">{{ _("Restoring replaces the current configuration and restarts the service.") }}</div>
+      </div>
+    </div>
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Change password") }}</span></div>
+      <div class="ess-panel-body">
+        <form id="pw-form" class="row g-2">
+          <div class="col-12"><label class="form-label">{{ _("Current password") }}</label><input class="form-control" type="password" name="current_password" autocomplete="current-password" required></div>
+          <div class="col-md-6"><label class="form-label">{{ _("New password") }}</label><input class="form-control" type="password" name="new_password" minlength="8" autocomplete="new-password" required></div>
+          <div class="col-md-6"><label class="form-label">{{ _("Repeat") }}</label><input class="form-control" type="password" name="new_password2" minlength="8" autocomplete="new-password" required></div>
+          <div class="col-12"><button class="btn btn-console" type="submit">{{ _("Change") }}</button></div>
+        </form>
+      </div>
+    </div>
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Language") }}</span></div>
+      <div class="ess-panel-body">
+        <div class="d-flex gap-2 align-items-center">
+          <select class="form-select w-auto" id="ui-lang">{% for code, name in languages.items() %}<option value="{{ code }}" {{ 'selected' if code == lang }}>{{ name }}</option>{% endfor %}</select>
+          <button class="btn btn-console" id="btn-lang">{{ _("Apply") }}</button>
+        </div>
+        <div class="form-text">{{ _("Language of the web interface for all users. English is the default.") }}</div>
+      </div>
+    </div>
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Architecture (CQRS)") }}</span></div>
+      <div class="ess-panel-body small" id="cqrs"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const T = ESS.t, esc = ESS.esc;
+
+  async function loadInfo() {
+    const d = await ESS.api("/api/system");
+    const rows = [[T("Version"), d.version], [T("Host name"), d.hostname], [T("IP addresses"), d.ip_addresses.join(", ") || "—"],
+      [T("Model"), d.model], [T("Operating system"), d.os], [T("Kernel"), d.kernel], ["Python", d.python],
+      [T("Uptime"), ESS.fmtUptime(d.uptime_s)], [T("Data directory"), d.data_dir], [T("Free disk space"), d.disk_free_mb + " MB"],
+      [T("Users"), d.users.join(", ")]];
+    if (d.system_backend !== "sudo") rows.push([T("System actions"), T("simulated (development mode)")]);
+    document.getElementById("info").innerHTML = rows.map((r) => `<dt>${r[0]}</dt><dd>${esc(r[1])}</dd>`).join("");
+    document.getElementById("host-form").elements.hostname.value = d.hostname;
+    const ndi = document.getElementById("ndi-form");
+    ndi.elements.limit.value = d.ndi.limit;
+    document.getElementById("ndi-help").textContent = T("Default for this model: {n}. Each NDI source needs CPU time for decoding.", { n: d.ndi.default });
+    document.getElementById("cqrs").innerHTML = `<p class="mb-2">${esc(T("Writing actions run as commands, reading ones as queries, over separate buses."))}</p>
+      <div class="mb-1 text-dim">Commands (${d.commands.commands.length})</div><div class="mono mb-2">${d.commands.commands.map(esc).join(", ")}</div>
+      <div class="mb-1 text-dim">Queries (${d.commands.queries.length})</div><div class="mono">${d.commands.queries.map(esc).join(", ")}</div>`;
+  }
+
+  async function loadTime() {
+    const d = await ESS.api("/api/system/time");
+    document.getElementById("now").textContent = d.now;
+    const tz = document.getElementById("tz-form").elements.timezone;
+    tz.innerHTML = d.timezones.map((z) => `<option ${z === d.timezone ? "selected" : ""}>${esc(z)}</option>`).join("");
+    document.getElementById("ntp-form").elements.servers.value = d.ntp_servers.join(", ");
+    document.getElementById("ntp-state").textContent = d.ntp_synchronized ? T("Clock synchronised") : (d.ntp_enabled ? T("Not synchronised yet") : T("NTP disabled"));
+  }
+
+  document.getElementById("host-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await ESS.run(() => ESS.api("/api/system/hostname", { hostname: e.target.hostname.value }), T("Host name saved"));
+    loadInfo();
+  });
+  document.getElementById("tz-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await ESS.run(() => ESS.api("/api/system/timezone", { timezone: e.target.timezone.value }), T("Time zone saved"));
+    loadTime();
+  });
+  document.getElementById("ntp-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const servers = e.target.servers.value.split(/[\s,;]+/).filter(Boolean);
+    await ESS.run(() => ESS.api("/api/system/ntp", { servers }), T("NTP servers saved"));
+    loadTime();
+  });
+  document.getElementById("ndi-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await ESS.run(() => ESS.api("/api/system/ndi-limit", { limit: Number(e.target.limit.value) }), T("Saved"));
+    loadInfo();
+  });
+  document.getElementById("ndi-reset").addEventListener("click", async () => {
+    await ESS.run(() => ESS.api("/api/system/ndi-limit", { limit: null }), T("Saved"));
+    loadInfo();
+  });
+  document.getElementById("btn-reboot").addEventListener("click", async () => {
+    if (!ESS.confirm(T("Reboot the device now? The outputs will be dark for about a minute."))) return;
+    await ESS.run(() => ESS.api("/api/system/reboot", {}), T("The device is rebooting …"));
+  });
+  document.getElementById("btn-shutdown").addEventListener("click", async () => {
+    if (!ESS.confirm(T("Shut down the device now? It can only be switched on again at the device itself."))) return;
+    await ESS.run(() => ESS.api("/api/system/shutdown", {}), T("The device is shutting down …"));
+  });
+  document.getElementById("restore-file").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file || !ESS.confirm(T("Replace the current configuration with \"{name}\"?", { name: file.name }))) return;
+    await ESS.run(() => ESS.api("/api/backup/restore", file), T("Backup accepted – the service restarts …"));
+    setTimeout(() => location.reload(), 6000);
+  });
+  document.getElementById("btn-lang").addEventListener("click", async () => {
+    await ESS.run(() => ESS.api("/api/ui/language", { language: document.getElementById("ui-lang").value }));
+    location.reload();
+  });
+  document.getElementById("pw-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (e.target.new_password.value !== e.target.new_password2.value) { ESS.toast(T("The new passwords do not match"), "err"); return; }
+    await ESS.run(() => ESS.api("/api/account/password", { current_password: e.target.current_password.value, new_password: e.target.new_password.value }), T("Password changed"));
+    e.target.reset();
+  });
+
+  loadInfo().catch((e) => ESS.toast(e.message, "err"));
+  loadTime().catch((e) => ESS.toast(e.message, "err"));
+})();
+</script>
+{% endblock %}

@@ -22,7 +22,7 @@ This is throw-away code. It does not use the final project structure.
 |---|---|
 | `spike/` | Python spike server (Starlette): output pages, MJPEG/WebRTC bridge, metrics recorder, report generator |
 | `spike/static/output.*` | The scene rendered on each output, with frame/latency measurement |
-| `kiosk/session.sh` | Runs inside labwc: sets HDMI modes with `wlr-randr`, starts one Chromium per output |
+| `kiosk/session.sh` | Runs inside sway: sets HDMI modes with `wlr-randr`, starts one Chromium per output |
 | `run.sh` | Runs one scenario for a given duration |
 | `all.sh` | Runs all scenarios and writes the report |
 | `scenarios/*.env` | Scenario definitions (modes, transport, source, load) |
@@ -84,9 +84,7 @@ A single scenario can be run with `./run.sh <scenario> [seconds]`, e.g.
 | `s6-ndi-mirror-mjpeg` | Both outputs show the same NDI source (output 2 at 720p, video flipped) |
 | `s7-dual-4k30-scene` | Both outputs 4K30 (Pi 5 only) |
 
-If the windows do not end up on the right ports, the window match can be
-switched to the window title with `SPIKE_MATCH=title`. The output names can be
-changed with `OUT1_NAME`/`OUT2_NAME` (see `data/outputs-before-*.txt`).
+The output names can be changed with `OUT1_NAME`/`OUT2_NAME` (see `data/outputs-before-*.txt`).
 
 ### Glass-to-glass latency (manual, optional)
 
