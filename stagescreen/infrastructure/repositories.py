@@ -101,3 +101,85 @@ def _output_from_json(output_id: int, d: dict[str, Any]) -> OutputConfig:
             flip_v=bool(mirror.get("flip_v", False)),
         ),
     )
+
+
+class SceneRepository:
+    """Scenes per output. ``live`` is what the output shows, ``draft`` the edited copy."""
+
+    def __init__(self, db: Database):
+        self.db = db
+
+    @staticmethod
+    def _row(r: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": r["id"], "output_id": r["output_id"], "name": r["name"], "sort": r["sort"],
+            "live": json.loads(r["live"]), "draft": json.loads(r["draft"]) if r["draft"] else None,
+            "updated_at": r["updated_at"],
+        }
+
+    def get(self, scene_id: str) -> dict[str, Any] | None:
+        row = self.db.fetchone("SELECT * FROM scenes WHERE id = ?", (scene_id,))
+        return self._row(row) if row else None
+
+    def list(self, output_id: int | None = None) -> list[dict[str, Any]]:
+        if output_id is None:
+            rows = self.db.fetchall("SELECT * FROM scenes ORDER BY output_id, sort, name")
+        else:
+            rows = self.db.fetchall("SELECT * FROM scenes WHERE output_id = ? ORDER BY sort, name", (output_id,))
+        return [self._row(r) for r in rows]
+
+    def create(self, scene_id: str, output_id: int, name: str, content: dict[str, Any]) -> None:
+        row = self.db.fetchone("SELECT COALESCE(MAX(sort), -1) + 1 AS n FROM scenes WHERE output_id = ?", (output_id,))
+        self.db.execute(
+            "INSERT INTO scenes (id, output_id, name, sort, live, draft, updated_at) VALUES (?, ?, ?, ?, ?, NULL, ?)",
+            (scene_id, output_id, name, row["n"] if row else 0, json.dumps(content), now_iso()),
+        )
+
+    def save_draft(self, scene_id: str, draft: dict[str, Any] | None) -> None:
+        self.db.execute("UPDATE scenes SET draft = ?, updated_at = ? WHERE id = ?",
+                        (json.dumps(draft) if draft is not None else None, now_iso(), scene_id))
+
+    def publish(self, scene_id: str, content: dict[str, Any]) -> None:
+        self.db.execute("UPDATE scenes SET live = ?, draft = NULL, updated_at = ? WHERE id = ?",
+                        (json.dumps(content), now_iso(), scene_id))
+
+    def rename(self, scene_id: str, name: str) -> None:
+        self.db.execute("UPDATE scenes SET name = ?, updated_at = ? WHERE id = ?", (name, now_iso(), scene_id))
+
+    def reorder(self, output_id: int, ids: list[str]) -> None:
+        with self.db.transaction() as conn:
+            for index, scene_id in enumerate(ids):
+                conn.execute("UPDATE scenes SET sort = ? WHERE id = ? AND output_id = ?", (index, scene_id, output_id))
+
+    def delete(self, scene_id: str) -> None:
+        self.db.execute("DELETE FROM scenes WHERE id = ?", (scene_id,))
+
+
+class MediaRepository:
+    def __init__(self, db: Database):
+        self.db = db
+
+    def add(self, item: dict[str, Any]) -> None:
+        self.db.execute(
+            "INSERT INTO media (id, kind, name, family, filename, mime, size, sha256, width, height, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?)",
+            (item["id"], item["kind"], item["name"], item.get("family"), item["filename"], item["mime"],
+             item["size"], item["sha256"], now_iso()),
+        )
+
+    def get(self, media_id: str) -> dict[str, Any] | None:
+        return self.db.fetchone("SELECT * FROM media WHERE id = ?", (media_id,))
+
+    def by_sha(self, sha256: str) -> dict[str, Any] | None:
+        return self.db.fetchone("SELECT * FROM media WHERE sha256 = ?", (sha256,))
+
+    def list(self, kind: str | None = None) -> list[dict[str, Any]]:
+        if kind:
+            return self.db.fetchall("SELECT * FROM media WHERE kind = ? ORDER BY name", (kind,))
+        return self.db.fetchall("SELECT * FROM media ORDER BY kind, name")
+
+    def rename(self, media_id: str, name: str, family: str | None) -> None:
+        self.db.execute("UPDATE media SET name = ?, family = COALESCE(?, family) WHERE id = ?", (name, family, media_id))
+
+    def delete(self, media_id: str) -> None:
+        self.db.execute("DELETE FROM media WHERE id = ?", (media_id,))

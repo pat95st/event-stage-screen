@@ -10,8 +10,9 @@ stagescreen/
                    NetworkManager, backup, privileged runner
   i18n/            English source strings, German catalog (de.py)
   web/             Starlette app, Jinja2 templates, static JS/CSS (Bootstrap 5.3.3, dark)
+  kiosk/           kiosk agent running inside the sway session on the Pi (wlr-randr, Chromium)
   container.py     composition root (wires everything)
-deploy/            install.sh, systemd unit, env file, root helper, sudoers rule
+deploy/            install.sh, systemd units, env file, root helper, sudoers rule, kiosk session script
 ```
 
 ## Request flow
@@ -21,6 +22,52 @@ deploy/            install.sh, systemd unit, env file, root helper, sudoers rule
   `DomainError` (translatable `Msg`), returned as `{"error": "..."}` with HTTP 4xx.
 - Writing requests need the header `X-ESS: 1` (CSRF protection) and a valid session.
 - `GET /api/stream` is a Server-Sent-Events stream (`status`, `changed`, `log`).
+
+## Scenes and rendering
+
+A scene is a JSON document (see `stagescreen/domain/scene.py`): base
+resolution, background, scaling (letterbox/stretch), transition (cut/fade) and
+an ordered list of elements (`text`, `image`, `clock`, `color`). Each element
+has a box (`x`, `y`, `w`, `h` in base pixels), `rotation`, `flip_h`/`flip_v`,
+`opacity`, `crop` (fractions per side), `visible`, `locked`, `lock_aspect`
+and type-specific `props`. `normalize_scene` validates every document before
+it is stored.
+
+Every scene has a **live** version (what the output shows) and an optional
+**draft** (studio mode). The editor autosaves the draft; *Apply* publishes it.
+With *live editing* every change is published directly. Each output has one
+active scene (`scene.active.<n>`); output 2 in mirror mode shows output 1's
+active scene with its own scaling, rotation and flipping.
+
+`web/static/js/scene-render.js` renders scenes in the browser. The same code is
+used by the kiosk render page (`/render/<n>`) and the editor canvas, so the
+editor is WYSIWYG. Render pages fetch `/api/render/<n>/state` and follow
+changes through `/api/render/stream` (SSE).
+
+Media (images, fonts) live in `<data>/media`; types are detected from the file
+content. SVGs are served with a restrictive Content-Security-Policy.
+
+## Kiosk
+
+`event-stage-screen-kiosk.service` opens a logind session on tty1 for the
+user `ess` and runs `deploy/kiosk-session.sh`, which starts **sway** with a
+generated configuration. Inside the session `python -m stagescreen.kiosk`
+(the kiosk agent) loops every 2 seconds:
+
+1. `GET /api/kiosk/config` – desired outputs (connector, enabled, mode, rotation).
+2. Apply modes, rotation and a side-by-side layout with `wlr-randr`
+   (listed modes first, `--custom-mode` otherwise; rejected modes are not retried
+   for 60 s).
+3. Write sway rules that move each output's Chromium window full screen to its
+   connector (`for_window [app_id="__render_<n>-"] …`) and keep one Chromium
+   `--app` window per enabled, connected output; crashed browsers are restarted
+   with back-off, unplugged outputs stop their browser, re-plugged ones start it again.
+4. `POST /api/kiosk/report` – detected outputs and modes (shown in the web UI).
+
+The agent and the render pages authenticate with the **kiosk token**
+(`<data>/kiosk.token`, header `X-ESS-Kiosk` or `?k=`). It grants read access
+to render state, media and fonts and to the kiosk endpoints only – never to
+the admin API or to writes.
 
 ## Privileged actions
 

@@ -95,3 +95,101 @@ class ConfirmNetworkChange(Command):
 @dataclass
 class RollbackNetworkChange(Command):
     pass
+
+
+# ------------------------------------------------------------------ scenes
+
+@dataclass
+class CreateScene(Command):
+    output_id: int
+    name: str
+    width: int | None = None
+    height: int | None = None
+
+
+@dataclass
+class SaveSceneDraft(Command):
+    scene_id: str
+    content: dict[str, Any]
+
+
+@dataclass
+class PublishScene(Command):
+    """Make the draft (or the given content, for live editing) the live version."""
+
+    scene_id: str
+    content: dict[str, Any] | None = None
+
+
+@dataclass
+class DiscardSceneDraft(Command):
+    scene_id: str
+
+
+@dataclass
+class RenameScene(Command):
+    scene_id: str
+    name: str
+
+
+@dataclass
+class DuplicateScene(Command):
+    scene_id: str
+    output_id: int | None = None
+
+
+@dataclass
+class DeleteScene(Command):
+    scene_id: str
+
+
+@dataclass
+class ReorderScenes(Command):
+    output_id: int
+    scene_ids: list[str]
+
+
+@dataclass
+class ActivateScene(Command):
+    output_id: int
+    scene_id: str | None
+
+
+@dataclass
+class ImportScene(Command):
+    output_id: int
+    data: dict[str, Any]
+
+
+# ------------------------------------------------------------------ media
+
+@dataclass
+class UploadMedia(Command):
+    data: bytes
+    name: str
+    family: str | None = None
+
+
+@dataclass
+class RenameMedia(Command):
+    media_id: str
+    name: str
+    family: str | None = None
+
+
+@dataclass
+class DeleteMedia(Command):
+    media_id: str
+
+
+@dataclass
+class SaveSplash(Command):
+    mode: str
+    logo_media_id: str | None = None
+
+
+# ------------------------------------------------------------------ kiosk
+
+@dataclass
+class ReportKioskState(Command):
+    report: dict[str, Any]

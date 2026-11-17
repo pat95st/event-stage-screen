@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="editor-layout">
+  <!-- scene list -->
+  <aside class="ess-panel ed-scenes">
+    <div class="ess-panel-head"><span>{{ _("Scenes") }}</span>
+      <div class="d-flex gap-1">
+        <button class="btn btn-sm btn-console" id="btn-new-scene" title="{{ _('New scene') }}">＋</button>
+        <label class="btn btn-sm btn-console mb-0" title="{{ _('Import scene') }}">⤓<input type="file" id="import-file" accept=".json,application/json" hidden></label>
+      </div>
+    </div>
+    <div class="ess-panel-body p-2" id="scene-list"></div>
+  </aside>
+
+  <!-- canvas -->
+  <section class="ed-main">
+    <div class="ed-toolbar ess-panel">
+      <div class="btn-group btn-group-sm" role="group" aria-label="{{ _('Add element') }}">
+        <button class="btn btn-console" data-add="text" title="{{ _('Add text') }}">T&nbsp;{{ _("Text") }}</button>
+        <button class="btn btn-console" data-add="image" title="{{ _('Add image') }}">▣&nbsp;{{ _("Image") }}</button>
+        <button class="btn btn-console" data-add="clock" title="{{ _('Add clock') }}">◷&nbsp;{{ _("Clock") }}</button>
+        <button class="btn btn-console" data-add="color" title="{{ _('Add colour area') }}">■&nbsp;{{ _("Colour") }}</button>
+      </div>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-console" id="btn-undo" title="{{ _('Undo') }} (Ctrl+Z)">↶</button>
+        <button class="btn btn-console" id="btn-redo" title="{{ _('Redo') }} (Ctrl+Y)">↷</button>
+      </div>
+      <div class="btn-group btn-group-sm">
+        <button class="btn btn-console" id="btn-dup" title="{{ _('Duplicate') }} (Ctrl+D)">⧉</button>
+        <button class="btn btn-console" id="btn-front" title="{{ _('Bring to front') }}">⤒</button>
+        <button class="btn btn-console" id="btn-up" title="{{ _('Bring forward') }}">↑</button>
+        <button class="btn btn-console" id="btn-down" title="{{ _('Send backward') }}">↓</button>
+        <button class="btn btn-console" id="btn-back" title="{{ _('Send to back') }}">⤓</button>
+        <button class="btn btn-console" id="btn-del" title="{{ _('Delete') }} (Del)">🗑</button>
+      </div>
+      <div class="d-flex align-items-center gap-2 small">
+        <div class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" id="opt-snap" checked><label class="form-check-label" for="opt-snap">{{ _("Snap") }}</label></div>
+        <div class="form-check form-switch mb-0"><input class="form-check-input" type="checkbox" id="opt-grid"><label class="form-check-label" for="opt-grid">{{ _("Grid") }}</label></div>
+        <input class="form-control form-control-sm" type="number" id="opt-grid-size" value="40" min="4" max="500" style="width:70px" aria-label="{{ _('Grid size') }}">
+      </div>
+    </div>
+    <div class="ed-statusbar">
+      <span id="ed-title" class="fw-bold"></span>
+      <span id="ed-state" class="badge"></span>
+      <span id="ed-save" class="small text-dim"></span>
+      <div class="ms-auto d-flex align-items-center gap-2">
+        <div class="form-check form-switch mb-0 small" title="{{ _('Changes go to the output immediately, without Apply.') }}">
+          <input class="form-check-input" type="checkbox" id="opt-live"><label class="form-check-label" for="opt-live">{{ _("Live editing") }}</label></div>
+        <button class="btn btn-sm btn-console" id="btn-discard">{{ _("Discard changes") }}</button>
+        <button class="btn btn-sm btn-success" id="btn-apply">{{ _("Apply") }}</button>
+      </div>
+    </div>
+    <div class="ed-canvas" id="canvas" tabindex="0" aria-label="{{ _('Scene canvas') }}">
+      <div class="ed-stage-host" id="stage-host"></div>
+      <div class="ed-overlay" id="overlay"></div>
+      <div class="ed-empty" id="ed-empty">{{ _("Create or select a scene on the left.") }}</div>
+    </div>
+  </section>
+
+  <!-- properties + layers -->
+  <aside class="ed-side">
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span id="props-title">{{ _("Properties") }}</span></div>
+      <div class="ess-panel-body" id="props"></div>
+    </div>
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Layers") }}</span></div>
+      <div class="ess-panel-body p-1" id="layers"></div>
+    </div>
+  </aside>
+</div>
+
+<dialog id="dlg-new" class="ess-dialog">
+  <form method="dialog" id="form-new">
+    <h5 class="mb-3">{{ _("New scene") }}</h5>
+    <div class="mb-2"><label class="form-label">{{ _("Name") }}</label><input class="form-control" name="name" maxlength="60" required></div>
+    <div class="mb-2"><label class="form-label">{{ _("Output") }}</label><select class="form-select" name="output"></select></div>
+    <div class="mb-3"><label class="form-label">{{ _("Base resolution") }}</label><select class="form-select" name="size"></select></div>
+    <div class="d-flex justify-content-end gap-2">
+      <button class="btn btn-console" value="cancel" formnovalidate>{{ _("Cancel") }}</button>
+      <button class="btn btn-primary" value="ok">{{ _("Create") }}</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-media" class="ess-dialog ess-dialog-wide">
+  <div class="d-flex align-items-center mb-3 gap-2">
+    <h5 class="mb-0 me-auto">{{ _("Choose image") }}</h5>
+    <label class="btn btn-sm btn-console mb-0">{{ _("Upload …") }}<input type="file" id="media-upload" accept="image/*,.svg" multiple hidden></label>
+    <button class="btn btn-sm btn-console" id="media-close">{{ _("Cancel") }}</button>
+  </div>
+  <div class="media-grid" id="media-grid"></div>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<link rel="stylesheet" href="/api/fonts.css">
+<link rel="stylesheet" href="/static/css/editor.css?v={{ version }}">
+<script src="/static/js/scene-render.js?v={{ version }}"></script>
+<script src="/static/js/editor.js?v={{ version }}"></script>
+{% endblock %}

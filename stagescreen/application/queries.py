@@ -48,3 +48,39 @@ class GetLogs(Query):
     level: str = "DEBUG"
     text: str = ""
     limit: int = 500
+
+
+@dataclass
+class ListScenes(Query):
+    pass
+
+
+@dataclass
+class GetScene(Query):
+    scene_id: str
+
+
+@dataclass
+class ExportScene(Query):
+    scene_id: str
+    include_media: bool = False
+
+
+@dataclass
+class ListMedia(Query):
+    pass
+
+
+@dataclass
+class GetFonts(Query):
+    pass
+
+
+@dataclass
+class GetRenderState(Query):
+    output_id: int
+
+
+@dataclass
+class GetKioskConfig(Query):
+    pass

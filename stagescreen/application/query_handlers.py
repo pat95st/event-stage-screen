@@ -30,20 +30,30 @@ def register_query_handlers(bus: QueryBus, s: Services) -> None:
 
     async def outputs_view() -> dict[str, Any]:
         connectors = {c.name: c for c in await asyncio.to_thread(detect_connectors, s.config.drm_dir)}
+        kiosk = s.kiosk_outputs()
         items = []
         for cfg in s.output_repo.all():
             con = connectors.get(cfg.connector)
+            reported = kiosk.get(cfg.connector)
+            kiosk_modes = (reported or {}).get("modes") or []
+            current = next((m for m in kiosk_modes if m.get("current")), None)
+            active_id = s.settings.get(f"scene.active.{cfg.mirror_of or cfg.id}")
+            active = s.scene_repo.get(active_id) if active_id else None
             items.append({
+                "scene_name": active["name"] if active else None,
                 **cfg.to_dict(),
-                "detected": con is not None,
-                "connected": bool(con and con.connected),
-                "modes": con.modes if con else [],
+                "detected": con is not None or reported is not None,
+                "connected": bool((con and con.connected) or (reported and kiosk_modes)),
+                "modes": con.modes if con else sorted({f"{m['width']}x{m['height']}" for m in kiosk_modes}),
+                "kiosk_modes": kiosk_modes,
+                "current_mode": current,
             })
         return {
             "outputs": items,
             "connectors": [c.to_dict() for c in connectors.values()],
             "refresh_rates": list(COMMON_REFRESH_RATES),
             "rotations": list(ROTATIONS),
+            "kiosk_online": bool(s.kiosk_state) and time.time() - s.kiosk_state.get("received_at", 0) < 15,
         }
 
     async def dashboard(_: q.GetDashboard) -> dict[str, Any]:

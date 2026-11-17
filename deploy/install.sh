@@ -12,6 +12,7 @@ DATA_DIR=/var/lib/event-stage-screen
 ENV_FILE=/etc/event-stage-screen.env
 HELPER_DIR=/usr/local/lib/event-stage-screen
 SERVICE=event-stage-screen.service
+KIOSK_SERVICE=event-stage-screen-kiosk.service
 SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 say() { printf '==> %s\n' "$*"; }
@@ -23,13 +24,19 @@ fi
 
 say "System packages"
 apt-get update -qq
-apt-get install -y -qq python3 python3-venv curl rsync sudo network-manager
+apt-get install -y -qq python3 python3-venv curl rsync sudo network-manager \
+  sway wlr-randr fonts-dejavu-core
+if apt-cache show chromium >/dev/null 2>&1; then
+  apt-get install -y -qq chromium
+else
+  apt-get install -y -qq chromium-browser
+fi
 
 say "Service user 'ess'"
 if ! id ess >/dev/null 2>&1; then
   useradd --system --home "$DATA_DIR" --shell /usr/sbin/nologin ess
 fi
-for group in video render; do
+for group in video render input; do
   getent group "$group" >/dev/null && usermod -aG "$group" ess
 done
 
@@ -67,11 +74,24 @@ chown -R ess:ess "$DATA_DIR"
 chmod 0750 "$DATA_DIR"
 chown -R root:root "$APP_DIR"
 
-say "Service"
+say "Services"
 cp "$APP_DIR/deploy/$SERVICE" "/etc/systemd/system/$SERVICE"
+cp "$APP_DIR/deploy/$KIOSK_SERVICE" "/etc/systemd/system/$KIOSK_SERVICE"
+chmod 0755 "$APP_DIR/deploy/kiosk-session.sh"
+# The outputs are driven by our own kiosk session on tty1; a desktop display
+# manager (Raspberry Pi OS Desktop) would compete for the screens.
+for dm in lightdm gdm3 sddm; do
+  if systemctl is-enabled "$dm" >/dev/null 2>&1; then
+    echo "    Disabling the desktop display manager ($dm) – the Pi becomes a dedicated display."
+    systemctl disable "$dm" >/dev/null 2>&1 || true
+    systemctl stop "$dm" >/dev/null 2>&1 || true
+  fi
+done
+systemctl set-default graphical.target >/dev/null
 systemctl daemon-reload
-systemctl enable "$SERVICE" >/dev/null
+systemctl enable "$SERVICE" "$KIOSK_SERVICE" >/dev/null
 systemctl restart "$SERVICE"
+systemctl restart "$KIOSK_SERVICE"
 
 PORT="$(grep -E '^ESS_PORT=' "$ENV_FILE" | cut -d= -f2)"
 echo

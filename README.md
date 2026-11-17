@@ -15,12 +15,15 @@ in a Bootstrap-based web application on the device.
 |---|---|
 | 1. Spike: dual HDMI + NDI | done, waiting for measurements on real hardware |
 | 2. Skeleton: web UI, login, settings, installer, CI | done |
-| 3. Renderer and scene editor | next |
-| 4. eventrentmanager integration | open |
+| 3. Renderer and scene editor | done |
+| 4. eventrentmanager integration | next |
 | 5. NDI | open |
 | 6. Automation, API, setup aids, updates | open |
 
-The web interface currently offers: dashboard (outputs and system status),
+The web interface currently offers: a scene editor (text, image, clock and
+colour elements; move, resize, rotate, flip, crop, opacity, layers, lock,
+snapping, undo/redo; draft + apply or live editing; import/export), a media
+library (images and fonts), dashboard (outputs and system status),
 output settings (video mode incl. custom modes, rotation, mirroring of output 1
 to output 2), network (DHCP/static, Wi-Fi, automatic rollback), system (host
 name, time zone, NTP, NDI source limit, reboot/shutdown, backup/restore,
@@ -37,6 +40,10 @@ git clone https://github.com/pat95st/event-stage-screen.git
 ```bash
 cd event-stage-screen && sudo ./deploy/install.sh
 ```
+
+The installer sets up two services: the web service and the kiosk display
+(sway + Chromium on tty1, one full-screen window per HDMI port). A desktop
+display manager is disabled, because the Pi becomes a dedicated display.
 
 Then open `http://<ip-address>:8080/` (or `http://<hostname>.local:8080/`) and
 create the administrator account. Re-running `install.sh` updates an existing

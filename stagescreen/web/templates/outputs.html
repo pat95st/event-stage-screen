@@ -1,7 +1,24 @@
 {% extends "base.html" %}
 {% block content %}
-<p class="text-dim">{{ _("Video mode and orientation of the two HDMI ports. The settings are applied by the display renderer (milestone 3).") }}</p>
+<p class="text-dim mb-1">{{ _("Video mode and orientation of the two HDMI ports.") }}</p>
+<div id="kiosk-state" class="small mb-2"></div>
 <div class="row g-3" id="outputs"></div>
+<div class="ess-panel mt-3">
+  <div class="ess-panel-head"><span>{{ _("Splash screen") }}</span></div>
+  <div class="ess-panel-body">
+    <form id="splash-form" class="row g-2 align-items-end">
+      <div class="col-md-5"><label class="form-label">{{ _("Shown while no scene is live") }}</label>
+        <select class="form-select" name="mode">
+          <option value="info">{{ _("Logo, host name and IP address") }}</option>
+          <option value="logo">{{ _("Logo only") }}</option>
+          <option value="black">{{ _("Black") }}</option>
+        </select></div>
+      <div class="col-md-5"><label class="form-label">{{ _("Logo") }}</label><select class="form-select" name="logo"></select></div>
+      <div class="col-md-2"><button class="btn btn-primary w-100" type="submit">{{ _("Save") }}</button></div>
+      <div class="col-12 form-text">{{ _("Images are managed in the media library.") }}</div>
+    </form>
+  </div>
+</div>
 <template id="tpl-output">
   <div class="col-xl-6">
     <form class="ess-panel output-form h-100" novalidate>
@@ -123,7 +140,46 @@
     if (location.hash) { const el = document.querySelector(location.hash); if (el) el.scrollIntoView(); }
   }
 
-  ESS.api("/api/outputs").then(render).catch((e) => ESS.toast(e.message, "err"));
+  ESS.api("/api/outputs").then((d) => {
+    render(d);
+    const ks = document.getElementById("kiosk-state");
+    ks.className = "small mb-2 " + (d.kiosk_online ? "text-success" : "text-warning");
+    ks.textContent = d.kiosk_online ? T("Display renderer is running.") : T("Display renderer is not running – settings are applied as soon as it starts.");
+    d.outputs.forEach((o) => {
+      const form = document.getElementById("output-" + o.id);
+      if (!form || !o.current_mode) return;
+      const st = form.querySelector(".o-state");
+      st.textContent += ` · ${o.current_mode.width}×${o.current_mode.height} @ ${Number(o.current_mode.refresh).toFixed(2)} Hz`;
+    });
+    // offer the refresh rates the monitor reports for the chosen resolution
+    d.outputs.forEach((o) => {
+      if (!o.kiosk_modes.length) return;
+      const form = document.getElementById("output-" + o.id);
+      const f = form.elements;
+      const sync = () => {
+        const [w, h] = f.edid_res.value.split("x").map(Number);
+        const rates = [...new Set(o.kiosk_modes.filter((m) => m.width === w && m.height === h).map((m) => Math.round(m.refresh * 100) / 100))];
+        if (!rates.length) return;
+        const cur = Number(f.edid_rate.value);
+        f.edid_rate.innerHTML = rates.map((r) => `<option value="${r}" ${Math.abs(r - cur) < 0.05 ? "selected" : ""}>${r} Hz</option>`).join("");
+      };
+      f.edid_res.addEventListener("change", sync);
+      sync();
+    });
+  }).catch((e) => ESS.toast(e.message, "err"));
+
+  async function loadSplash() {
+    const [media, st] = await Promise.all([ESS.api("/api/media"), ESS.api("/api/render/1/state")]);
+    const form = document.getElementById("splash-form");
+    form.elements.mode.value = st.splash.mode;
+    form.elements.logo.innerHTML = `<option value="">${esc(T("No logo"))}</option>` + media.items.filter((m) => m.kind === "image")
+      .map((m) => `<option value="${esc(m.id)}" ${m.id === st.splash.logo ? "selected" : ""}>${esc(m.name)}</option>`).join("");
+  }
+  document.getElementById("splash-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    await ESS.run(() => ESS.api("/api/splash", { mode: e.target.mode.value, logo: e.target.logo.value || null }), T("Saved"));
+  });
+  loadSplash().catch((e) => ESS.toast(e.message, "err"));
 })();
 </script>
 {% endblock %}

@@ -15,8 +15,9 @@
   const T = ESS.t;
 
   // ------------------------------------------------------------------ API
-  ESS.api = async function (path, data, method) {
-    const opts = { method: method || (data !== undefined ? "POST" : "GET"), headers: { "X-ESS": "1" }, credentials: "same-origin" };
+  ESS.api = async function (path, data, method, extraHeaders) {
+    const headers = Object.assign({ "X-ESS": "1" }, extraHeaders || {});
+    const opts = { method: method || (data !== undefined ? "POST" : "GET"), headers, credentials: "same-origin" };
     if (data !== undefined) {
       if (data instanceof Blob || data instanceof ArrayBuffer) {
         opts.headers["Content-Type"] = "application/octet-stream";

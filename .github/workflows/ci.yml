@@ -24,3 +24,4 @@ jobs:
       - name: Shell syntax
         run: |
           for f in deploy/install.sh scripts/*.sh; do bash -n "$f"; done
+          sh -n deploy/kiosk-session.sh

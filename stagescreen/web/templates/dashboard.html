@@ -60,9 +60,11 @@
           <dl class="kv">
             <dt>${T("Mode")}</dt><dd>${esc(mode)}</dd>
             <dt>${T("Rotation")}</dt><dd>${o.rotation}°</dd>
-            <dt>${T("Scene")}</dt><dd class="text-dim">${T("available from milestone 3")}</dd>
+            <dt>${T("Scene")}</dt><dd>${esc(o.scene_name || T("Splash screen"))}</dd>
           </dl>
-          <a class="btn btn-sm btn-console mt-3" href="/outputs#output-${o.id}">${T("Configure")}</a>
+          <div class="d-flex gap-2 mt-3"><a class="btn btn-sm btn-console" href="/outputs#output-${o.id}">${T("Configure")}</a>
+          <a class="btn btn-sm btn-console" href="/scenes">${T("Scenes")}</a>
+          <a class="btn btn-sm btn-console" href="/render/${o.id}" target="_blank" rel="noopener">${T("Preview")}</a></div>
         </div></div></div>`;
     }).join("");
   }

@@ -6,11 +6,13 @@ import asyncio
 import contextlib
 import json
 import logging
+import secrets
 import socket
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.applications import Starlette
@@ -38,12 +40,19 @@ from ..i18n import LANGUAGES, Msg, catalog_for, current_language, set_language, 
 from ..infrastructure.auth import SESSION_COOKIE, SESSION_MAX_AGE, verify_password
 from ..infrastructure.backup import MAX_BACKUP_BYTES, create_backup
 from ..infrastructure.logs import log_files
+from ..infrastructure.media import SVG_CSP, font_face_css
 
 log = logging.getLogger("ess.web")
 HERE = Path(__file__).parent
 
 PUBLIC_PATHS = ("/login", "/setup", "/static/", "/api/auth/", "/api/health")
+# Reachable with the kiosk token (render pages in the kiosk browser) or a session.
+KIOSK_PATHS = ("/render/", "/api/render/", "/media/", "/api/fonts.css")
+# Reachable with the kiosk token only (kiosk agent).
+KIOSK_ONLY_PATHS = ("/api/kiosk/",)
+KIOSK_HEADER = "x-ess-kiosk"
 CSRF_HEADER = "x-ess"
+MAX_UPLOAD_BYTES = 26 * 2**20
 
 
 def create_app(services: Services) -> Starlette:
@@ -72,6 +81,14 @@ def create_app(services: Services) -> Starlette:
             request.scope["user"] = user
             if path.startswith(PUBLIC_PATHS):
                 return await call_next(request)
+            kiosk = _kiosk_authed(request)
+            request.scope["kiosk"] = kiosk
+            if path.startswith(KIOSK_ONLY_PATHS):
+                if not kiosk:
+                    return JSONResponse({"error": t("Not logged in")}, status_code=401)
+                return await call_next(request)
+            if kiosk and path.startswith(KIOSK_PATHS) and request.method == "GET":
+                return await call_next(request)
             if s.user_repo.count() == 0:
                 return _deny(request, "/setup")
             if not user:
@@ -79,6 +96,10 @@ def create_app(services: Services) -> Starlette:
             if request.method in ("POST", "PUT", "DELETE", "PATCH") and request.headers.get(CSRF_HEADER) != "1":
                 return JSONResponse({"error": t("Missing request header (CSRF protection)")}, status_code=403)
             return await call_next(request)
+
+    def _kiosk_authed(request: Request) -> bool:
+        token = request.headers.get(KIOSK_HEADER) or request.query_params.get("k") or ""
+        return bool(token) and secrets.compare_digest(token, s.kiosk_token)
 
     def _deny(request: Request, location: str) -> Response:
         if request.url.path.startswith("/api/"):
@@ -237,10 +258,82 @@ def create_app(services: Services) -> Starlette:
             return await s.commands.dispatch(c.RestoreBackup(data))
         return await api(run)(request)
 
+    # ------------------------------------------------------------------ scenes, media, render, kiosk
+
+    async def page_render(request: Request) -> Response:
+        output_id = int(request.path_params["n"])
+        html = env.get_template("render.html").render(output_id=output_id, version=__version__)
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+
+    async def api_scene_export(request: Request) -> Response:
+        include = request.query_params.get("media") == "1"
+
+        async def run(_: Request) -> Any:
+            data = await s.queries.dispatch(q.ExportScene(p(request, "id"), include))
+            safe = "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in data["name"])[:40] or "scene"
+            return Response(json.dumps(data, indent=1), media_type="application/json",
+                            headers={"Content-Disposition": f'attachment; filename="{safe}.scene.json"'})
+        return await api(run)(request)
+
+    async def api_media_upload(request: Request) -> Response:
+        if int(request.headers.get("content-length") or 0) > MAX_UPLOAD_BYTES:
+            return JSONResponse({"error": t("The file is too large")}, status_code=413)
+        data = await request.body()
+        name = unquote(request.headers.get("x-filename") or "file")
+        family = unquote(request.headers.get("x-font-family") or "") or None
+
+        async def run(_: Request) -> Any:
+            return await s.commands.dispatch(c.UploadMedia(data, name, family))
+        return await api(run)(request)
+
+    async def media_file(request: Request) -> Response:
+        item = s.media_repo.get(request.path_params["id"])
+        if item is None:
+            return PlainTextResponse(t("File not found"), status_code=404)
+        headers = {"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"}
+        if item["mime"] == "image/svg+xml":
+            headers["Content-Security-Policy"] = SVG_CSP
+        return FileResponse(s.media_store.path(item["filename"]), media_type=item["mime"], headers=headers)
+
+    async def fonts_css(request: Request) -> Response:
+        token = f"?k={s.kiosk_token}" if request.scope.get("kiosk") else ""
+        css = font_face_css(s.media_repo.list("font"), HERE / "static" / "vendor" / "fonts",
+                            lambda media_id: f"/media/{media_id}{token}")
+        return Response(css, media_type="text/css", headers={"Cache-Control": "no-cache"})
+
+    async def api_render_stream(request: Request) -> Response:
+        queue = s.events.subscribe()
+
+        async def gen():  # noqa: ANN202
+            try:
+                yield "retry: 2000\n\n"
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        payload = await asyncio.wait_for(queue.get(), timeout=15)
+                    except TimeoutError:
+                        yield ": keepalive\n\n"
+                        continue
+                    if payload.startswith("event: changed") and '"topic":"drafts"' not in payload:
+                        yield payload
+            finally:
+                s.events.unsubscribe(queue)
+
+        return StreamingResponse(gen(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    async def api_kiosk_report(request: Request) -> Response:
+        data = await body(request)
+        await s.commands.dispatch(c.ReportKioskState(data))
+        return JSONResponse({"ok": True})
+
     # ------------------------------------------------------------------ routes
 
     def _limit(value: Any) -> int | None:
         return None if value in (None, "") else int(value)
+
+    _opt_int = _limit
 
     routes = [
         Route("/", page("dashboard.html", "dashboard", "Dashboard")),
@@ -286,6 +379,41 @@ def create_app(services: Services) -> Starlette:
         Route("/api/backup/restore", api_backup_restore, methods=["POST"]),
         Route("/api/ui/language", command(lambda r, d: c.SetLanguage(str(d.get("language", "")))), methods=["POST"]),
         Route("/api/account/password", command(lambda r, d: c.ChangePassword(r.scope["user"], d.get("current_password", ""), d.get("new_password", ""))), methods=["POST"]),
+
+        # scenes
+        Route("/scenes", page("scenes.html", "scenes", "Scenes")),
+        Route("/media", page("media.html", "media", "Media")),
+        Route("/render/{n:int}", page_render),
+        Route("/api/scenes", query(lambda r: q.ListScenes())),
+        Route("/api/scenes", command(lambda r, d: c.CreateScene(int(d["output_id"]), str(d.get("name") or ""),
+                                                                 _opt_int(d.get("width")), _opt_int(d.get("height")))), methods=["POST"]),
+        Route("/api/scenes/reorder", command(lambda r, d: c.ReorderScenes(int(d["output_id"]), list(d["scene_ids"]))), methods=["POST"]),
+        Route("/api/scenes/import", command(lambda r, d: c.ImportScene(int(d["output_id"]), dict(d["data"]))), methods=["POST"]),
+        Route("/api/scenes/{id}", query(lambda r: q.GetScene(p(r, "id")))),
+        Route("/api/scenes/{id}/export", api_scene_export),
+        Route("/api/scenes/{id}/draft", command(lambda r, d: c.SaveSceneDraft(p(r, "id"), dict(d["content"]))), methods=["POST"]),
+        Route("/api/scenes/{id}/publish", command(lambda r, d: c.PublishScene(p(r, "id"), d.get("content"))), methods=["POST"]),
+        Route("/api/scenes/{id}/discard", command(lambda r, d: c.DiscardSceneDraft(p(r, "id"))), methods=["POST"]),
+        Route("/api/scenes/{id}/rename", command(lambda r, d: c.RenameScene(p(r, "id"), str(d.get("name") or ""))), methods=["POST"]),
+        Route("/api/scenes/{id}/duplicate", command(lambda r, d: c.DuplicateScene(p(r, "id"), _opt_int(d.get("output_id")))), methods=["POST"]),
+        Route("/api/scenes/{id}/delete", command(lambda r, d: c.DeleteScene(p(r, "id"))), methods=["POST"]),
+        Route("/api/outputs/{id:int}/activate", command(lambda r, d: c.ActivateScene(p(r, "id"), d.get("scene_id"))), methods=["POST"]),
+        Route("/api/splash", command(lambda r, d: c.SaveSplash(str(d.get("mode") or "info"), d.get("logo") or None)), methods=["POST"]),
+
+        # media
+        Route("/api/media", query(lambda r: q.ListMedia())),
+        Route("/api/media", api_media_upload, methods=["POST"]),
+        Route("/api/media/{id}/rename", command(lambda r, d: c.RenameMedia(p(r, "id"), str(d.get("name") or ""), d.get("family"))), methods=["POST"]),
+        Route("/api/media/{id}/delete", command(lambda r, d: c.DeleteMedia(p(r, "id"))), methods=["POST"]),
+        Route("/media/{id}", media_file),
+        Route("/api/fonts", query(lambda r: q.GetFonts())),
+        Route("/api/fonts.css", fonts_css),
+
+        # render pages and kiosk agent
+        Route("/api/render/stream", api_render_stream),
+        Route("/api/render/{n:int}/state", query(lambda r: q.GetRenderState(p(r, "n")))),
+        Route("/api/kiosk/config", query(lambda r: q.GetKioskConfig())),
+        Route("/api/kiosk/report", api_kiosk_report, methods=["POST"]),
 
         Mount("/static", app=StaticFiles(directory=HERE / "static"), name="static"),
     ]

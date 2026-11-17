@@ -17,7 +17,7 @@ is configured through a Bootstrap-based web application on the device.
 |---|---|
 | Hardware | Raspberry Pi 4 **and** Raspberry Pi 5 (model detected automatically) |
 | OS | Raspberry Pi OS 64-bit (Trixie preferred, Bookworm supported) |
-| Display stack | Minimal Wayland kiosk (labwc), no desktop, no cursor, no screen blanking |
+| Display stack | Minimal Wayland kiosk (sway as compositor), no desktop, no cursor, no screen blanking |
 | Renderer | One Chromium kiosk window per HDMI output rendering a local scene page |
 | Transformations | CSS transforms (GPU-composited) |
 | NDI | GStreamer `ndisrc` (gst-plugins-rs) in a local bridge process, delivered to the scene page with low latency |
@@ -32,6 +32,13 @@ is configured through a Bootstrap-based web application on the device.
 The Pi 4 has less headroom (software decoding of full-bandwidth NDI). By
 default it allows **one** NDI source; the limit can be overridden in the
 settings. The UI shows CPU load, temperature and throttling state.
+
+> Decision change (milestone 3): the kiosk compositor is **sway** instead of
+> labwc. labwc 0.7 (Bookworm) cannot move a window to a named output via
+> window rules, and in `--app` mode Chromium ignores `--class` on Wayland (the
+> app_id is derived from the URL). sway's `for_window [app_id=…] move to output`
+> places each output's window deterministically. Both are wlroots compositors;
+> `wlr-randr` is used for modes in either case.
 
 ## 3. Outputs
 

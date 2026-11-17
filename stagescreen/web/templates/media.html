@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="ess-panel mb-3">
+  <div class="ess-panel-head"><span>{{ _("Upload") }}</span></div>
+  <div class="ess-panel-body">
+    <div class="drop-zone" id="drop">
+      {{ _("Drop images (PNG, JPEG, WebP, GIF, SVG) or fonts (TTF, OTF, WOFF, WOFF2) here, or") }}
+      <label class="btn btn-sm btn-console mb-0 ms-1">{{ _("choose files …") }}<input type="file" id="files" multiple hidden
+        accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml,.svg,.ttf,.otf,.woff,.woff2"></label>
+    </div>
+  </div>
+</div>
+<div class="ess-panel mb-3">
+  <div class="ess-panel-head"><span>{{ _("Images") }}</span><span class="small" id="count-images"></span></div>
+  <div class="ess-panel-body"><div class="media-grid" id="images"></div></div>
+</div>
+<div class="ess-panel">
+  <div class="ess-panel-head"><span>{{ _("Fonts") }}</span><span class="small" id="count-fonts"></span></div>
+  <div class="ess-panel-body">
+    <div class="media-grid" id="fonts"></div>
+    <div class="form-text mt-2" id="bundled"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<link rel="stylesheet" id="fonts-css" href="/api/fonts.css">
+<link rel="stylesheet" href="/static/css/editor.css?v={{ version }}">
+<script>
+(function () {
+  const T = ESS.t, esc = ESS.esc;
+  const kb = (n) => n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : Math.ceil(n / 1024) + " kB";
+
+  function card(m) {
+    const div = document.createElement("div");
+    div.className = "media-card";
+    div.style.cursor = "default";
+    const thumb = m.kind === "image"
+      ? `<div class="thumb"><img src="${esc(m.url)}" alt="" loading="lazy"></div>`
+      : `<div class="thumb font" style="font-family:'${esc(m.family)}'">Aa 123</div>`;
+    div.innerHTML = `${thumb}<div class="meta">
+      <div class="nm" title="${esc(m.name)}">${esc(m.name)}</div>
+      <div class="text-dim">${m.kind === "font" ? esc(m.family) + " · " : ""}${kb(m.size)}</div>
+      <div class="d-flex gap-1 mt-1">
+        <button class="btn btn-sm btn-console py-0" data-act="rename">${esc(T("Rename"))}</button>
+        <button class="btn btn-sm btn-outline-danger py-0" data-act="delete">${esc(T("Delete"))}</button>
+      </div></div>`;
+    div.querySelector("[data-act=rename]").addEventListener("click", async () => {
+      const name = window.prompt(T("New name"), m.name);
+      if (!name) return;
+      let family = null;
+      if (m.kind === "font") { family = window.prompt(T("Font family name (used in scenes)"), m.family); if (!family) return; }
+      await ESS.run(() => ESS.api(`/api/media/${m.id}/rename`, { name, family }), T("Saved"));
+      load();
+    });
+    div.querySelector("[data-act=delete]").addEventListener("click", async () => {
+      if (!ESS.confirm(T('Delete "{name}"?', { name: m.name }))) return;
+      await ESS.run(() => ESS.api(`/api/media/${m.id}/delete`, {}), T("Deleted"));
+      load();
+    });
+    return div;
+  }
+
+  async function load() {
+    const [media, fonts] = await Promise.all([ESS.api("/api/media"), ESS.api("/api/fonts")]);
+    const images = media.items.filter((m) => m.kind === "image"), fontItems = media.items.filter((m) => m.kind === "font");
+    const fill = (id, list, empty) => {
+      const box = document.getElementById(id);
+      box.innerHTML = list.length ? "" : `<div class="small text-dim">${esc(empty)}</div>`;
+      list.forEach((m) => box.appendChild(card(m)));
+    };
+    fill("images", images, T("No images yet."));
+    fill("fonts", fontItems, T("No fonts uploaded yet."));
+    document.getElementById("count-images").textContent = images.length;
+    document.getElementById("count-fonts").textContent = fontItems.length;
+    document.getElementById("bundled").textContent = T("Always available: {fonts}", { fonts: [...fonts.bundled, ...fonts.system].join(", ") });
+    document.getElementById("fonts-css").href = "/api/fonts.css?t=" + Date.now();
+  }
+
+  async function upload(files) {
+    for (const file of files) {
+      await ESS.run(() => ESS.api("/api/media", file, "POST", { "X-Filename": encodeURIComponent(file.name) }),
+        T('"{name}" uploaded', { name: file.name })).catch(() => {});
+    }
+    load();
+  }
+  const drop = document.getElementById("drop");
+  ["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+  ["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+  drop.addEventListener("drop", (e) => upload(e.dataTransfer.files));
+  document.getElementById("files").addEventListener("change", (e) => { upload(e.target.files); e.target.value = ""; });
+  load().catch((e) => ESS.toast(e.message, "err"));
+})();
+</script>
+{% endblock %}

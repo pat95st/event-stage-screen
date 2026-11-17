@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ess-output-{{ output_id }}</title>
+  <style>
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #000; cursor: none; }
+    #viewport { position: fixed; inset: 0; overflow: hidden; background: #000; }
+    #frame { position: absolute; left: 50%; top: 50%; transform-origin: 50% 50%; }
+    .layer { position: absolute; inset: 0; opacity: 1; }
+    .layer.fading-in { opacity: 0; }
+    #splash { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column;
+      gap: 3vh; color: #8a929e; font-family: "Inter", "DejaVu Sans", sans-serif; text-align: center; }
+    #splash img { max-width: 40vw; max-height: 35vh; object-fit: contain; }
+    #splash .host { font-size: 4.5vh; color: #d6dae0; font-weight: 600; }
+    #splash .addr { font-size: 3vh; font-family: "JetBrains Mono", "DejaVu Sans Mono", monospace; }
+    #splash .out { font-size: 2.2vh; letter-spacing: .1em; text-transform: uppercase; }
+  </style>
+  <link rel="stylesheet" id="fonts-css">
+</head>
+<body>
+  <div id="viewport"><div id="frame"></div><div id="splash"></div></div>
+  <script>window.ESS_OUTPUT = {{ output_id }}; window.ESS_VERSION = {{ version|tojson }};</script>
+  <script src="/static/js/scene-render.js?v={{ version }}"></script>
+  <script src="/static/js/render-page.js?v={{ version }}"></script>
+</body>
+</html>

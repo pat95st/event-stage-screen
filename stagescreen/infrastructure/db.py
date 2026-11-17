@@ -29,6 +29,32 @@ MIGRATIONS: list[str] = [
         config TEXT NOT NULL
     );
     """,
+    # 2: scenes and media library
+    """
+    CREATE TABLE scenes (
+        id         TEXT PRIMARY KEY,
+        output_id  INTEGER NOT NULL,
+        name       TEXT NOT NULL,
+        sort       INTEGER NOT NULL DEFAULT 0,
+        live       TEXT NOT NULL,
+        draft      TEXT,
+        updated_at TEXT NOT NULL
+    );
+    CREATE INDEX scenes_output ON scenes(output_id, sort);
+    CREATE TABLE media (
+        id         TEXT PRIMARY KEY,
+        kind       TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        family     TEXT,
+        filename   TEXT NOT NULL,
+        mime       TEXT NOT NULL,
+        size       INTEGER NOT NULL,
+        sha256     TEXT NOT NULL,
+        width      INTEGER,
+        height     INTEGER,
+        created_at TEXT NOT NULL
+    );
+    """,
 ]
 
 
