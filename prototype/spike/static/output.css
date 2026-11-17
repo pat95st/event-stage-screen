@@ -1,0 +1,47 @@
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: #f5f5f5;
+  cursor: none;
+  font-family: system-ui, sans-serif;
+}
+[hidden] { display: none !important; }
+#stage { position: relative; width: 100vw; height: 100vh; overflow: hidden; }
+.el { position: absolute; will-change: transform; }
+
+.logo { left: 2vw; top: 2vh; width: 12vw; color: #4fc3f7; }
+.label { left: 16vw; top: 3vh; font-size: 4vh; font-weight: 600; }
+.clock {
+  right: 2vw; top: 2vh; font-size: 7vh;
+  font-family: "DejaVu Sans Mono", monospace; font-variant-numeric: tabular-nums;
+  background: #111; padding: 0 1vw; border-radius: 1vh;
+}
+.countdown {
+  left: 50%; top: 22vh; transform: translateX(-50%);
+  font-size: 22vh; font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.progress { left: 25vw; top: 50vh; width: 50vw; height: 2vh; background: #333; border-radius: 1vh; overflow: hidden; }
+#progress-bar { height: 100%; width: 0; background: #66bb6a; transform-origin: left; }
+.rotated { right: 6vw; top: 60vh; font-size: 4vh; transform: rotate(12deg); background: #283593; padding: 1vh 2vw; }
+.mirrored { right: 6vw; top: 75vh; font-size: 4vh; transform: scaleX(-1); background: #4a148c; padding: 1vh 2vw; }
+.banner { left: 2vw; top: 12vh; font-size: 3vh; background: #b71c1c; padding: .5vh 1vw; border-radius: .5vh; }
+
+.video { left: 3vw; top: 55vh; width: 40vw; aspect-ratio: 16 / 9; background: #222; overflow: hidden; }
+.video video, .video canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.video .placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: #777; font-size: 3vh; }
+
+#load .box {
+  position: absolute; width: 6vw; height: 6vw; border-radius: 1vw;
+  background: linear-gradient(135deg, #ff7043, #ab47bc);
+  animation: spin 3s linear infinite, pulse 2s ease-in-out infinite alternate;
+  opacity: .5;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { from { opacity: .2; } to { opacity: .7; } }
+
+.stats {
+  right: 1vw; bottom: 1vh; font: 1.6vh/1.3 "DejaVu Sans Mono", monospace;
+  background: rgba(0, 0, 0, .7); padding: .5vh .8vw; white-space: pre; color: #aed581;
+}
