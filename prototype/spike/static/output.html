@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ess-output</title>
+  <link rel="stylesheet" href="/static/output.css">
+</head>
+<body>
+  <div id="stage">
+    <div class="el logo" id="logo">
+      <svg viewBox="0 0 120 40" aria-hidden="true">
+        <rect x="1" y="1" width="118" height="38" rx="8" fill="none" stroke="currentColor" stroke-width="2"/>
+        <text x="60" y="27" text-anchor="middle" font-size="18" fill="currentColor">LOGO</text>
+      </svg>
+    </div>
+    <div class="el label" id="label">Output</div>
+    <div class="el clock" id="clock">--:--:--.---</div>
+    <div class="el countdown" id="countdown">05:00</div>
+    <div class="el progress"><div id="progress-bar"></div></div>
+    <div class="el rotated">Rotated text 12°</div>
+    <div class="el mirrored">Mirrored text</div>
+    <div class="el banner">⚠ NO STROBE</div>
+    <div class="el video" id="video-box">
+      <video id="video" autoplay muted playsinline></video>
+      <canvas id="canvas"></canvas>
+      <div class="placeholder" id="video-placeholder">no video</div>
+    </div>
+    <div id="load"></div>
+    <div class="el stats" id="stats"></div>
+  </div>
+  <script src="/static/output.js"></script>
+</body>
+</html>

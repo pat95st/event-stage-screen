@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Spike (milestone 1)
+prototype/.ndi/
+prototype/data/

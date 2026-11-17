@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spike</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #111; color: #eee; margin: 2rem; }
+    a { color: #4fc3f7; }
+    code { background: #222; padding: 0 .3em; }
+  </style>
+</head>
+<body>
+  <h1>event-stage-screen spike</h1>
+  <ul>
+    <li><a href="/output/1">Output 1, no video</a></li>
+    <li><a href="/output/1?transport=mjpeg">Output 1, MJPEG test source</a></li>
+    <li><a href="/output/1?transport=webrtc">Output 1, WebRTC H.264 test source</a></li>
+    <li><a href="/output/1?transport=webrtc&amp;codec=vp8">Output 1, WebRTC VP8 test source</a></li>
+    <li><a href="/api/sources">NDI sources (JSON)</a></li>
+    <li><a href="/api/environment">Environment (JSON)</a></li>
+  </ul>
+  <p>Append <code>&amp;source=NAME</code> to use an NDI source and
+     <code>&amp;format=1920x1080@30</code> to change the video format.</p>
+</body>
+</html>
