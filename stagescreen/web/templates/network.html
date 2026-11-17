@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="pending" class="pending-banner mb-3" hidden>
+  <div class="d-flex flex-wrap align-items-center gap-3">
+    <div class="flex-grow-1">
+      <strong>{{ _("Please confirm the new network settings.") }}</strong>
+      <span id="pending-text"></span>
+      <div class="small mt-1">{{ _("If the device is no longer reachable at this address, open it via its new address or at") }}
+        <a class="mono" id="mdns-link" href="#"></a>.</div>
+    </div>
+    <button class="btn btn-success" id="btn-confirm">{{ _("Keep settings") }}</button>
+    <button class="btn btn-console" id="btn-rollback">{{ _("Undo now") }}</button>
+  </div>
+</div>
+<div id="unavailable" class="alert alert-secondary" hidden>{{ _("NetworkManager is not available on this system.") }}</div>
+<p class="text-dim">{{ _("Every change has to be confirmed within 60 seconds, otherwise the previous settings are restored automatically.") }}</p>
+<div class="row g-3" id="devices"></div>
+
+<template id="tpl-device">
+  <div class="col-xl-6">
+    <div class="ess-panel h-100">
+      <div class="ess-panel-head"><span class="d-title"></span><span class="d-state small"></span></div>
+      <div class="ess-panel-body">
+        <dl class="kv mb-3 d-info"></dl>
+        <div class="wifi-box mb-3">
+          <div class="ess-section-title">{{ _("Wi-Fi network") }}</div>
+          <form class="row g-2 wifi-form">
+            <div class="col-md-6"><label class="form-label">SSID</label>
+              <input class="form-control" name="ssid" list="" maxlength="32" required><datalist></datalist></div>
+            <div class="col-md-6"><label class="form-label">{{ _("Password") }}</label>
+              <input class="form-control" name="password" type="password" autocomplete="off" maxlength="63"></div>
+            <div class="col-12 d-flex gap-2">
+              <button class="btn btn-console" type="button" data-scan>{{ _("Scan") }}</button>
+              <button class="btn btn-primary" type="submit">{{ _("Connect") }}</button>
+            </div>
+          </form>
+          <hr>
+        </div>
+        <div class="ess-section-title">IPv4</div>
+        <form class="row g-2 ipv4-form">
+          <div class="col-md-4"><label class="form-label">{{ _("Method") }}</label>
+            <select class="form-select" name="method"><option value="auto">{{ _("Automatic (DHCP)") }}</option><option value="manual">{{ _("Static") }}</option></select></div>
+          <div class="col-md-8 static-only"><label class="form-label">{{ _("Address / prefix") }}</label><input class="form-control mono" name="address" placeholder="192.168.1.50/24"></div>
+          <div class="col-md-6 static-only"><label class="form-label">{{ _("Gateway") }}</label><input class="form-control mono" name="gateway" placeholder="192.168.1.1"></div>
+          <div class="col-md-6"><label class="form-label">{{ _("DNS servers") }}</label><input class="form-control mono" name="dns" placeholder="1.1.1.1, 9.9.9.9"></div>
+          <div class="col-12"><button class="btn btn-primary" type="submit">{{ _("Apply") }}</button></div>
+        </form>
+      </div>
+    </div>
+  </div>
+</template>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const T = ESS.t, esc = ESS.esc;
+  const port = location.port ? ":" + location.port : "";
+  let countdown = null;
+
+  function renderPending(p, hostname) {
+    const el = document.getElementById("pending");
+    clearInterval(countdown);
+    el.hidden = !p;
+    if (!p) return;
+    const link = document.getElementById("mdns-link");
+    link.href = `http://${hostname}.local${port}/network`;
+    link.textContent = `${hostname}.local`;
+    let left = p.seconds_left;
+    const text = document.getElementById("pending-text");
+    const tick = () => {
+      text.textContent = T("Automatic undo in {s} s.", { s: left });
+      if (left-- <= 0) { clearInterval(countdown); setTimeout(load, 1500); }
+    };
+    tick();
+    countdown = setInterval(tick, 1000);
+  }
+
+  function renderDevice(d, tpl) {
+    const node = tpl.content.cloneNode(true);
+    node.querySelector(".d-title").textContent = `${d.type === "wifi" ? T("Wi-Fi") : T("Ethernet")} · ${d.device}`;
+    node.querySelector(".d-state").textContent = d.state;
+    const rows = [[T("Connection"), d.connection || "—"], [T("Addresses"), d.addresses.join(", ") || "—"],
+                  [T("Gateway"), d.gateway || "—"], [T("DNS servers"), d.dns.join(", ") || "—"]];
+    node.querySelector(".d-info").innerHTML = rows.map((r) => `<dt>${r[0]}</dt><dd>${esc(r[1])}</dd>`).join("");
+
+    const wifiBox = node.querySelector(".wifi-box");
+    if (d.type !== "wifi") wifiBox.remove();
+    else {
+      const wf = wifiBox.querySelector(".wifi-form");
+      const list = wifiBox.querySelector("datalist");
+      list.id = "ssids-" + d.device;
+      wf.elements.ssid.setAttribute("list", list.id);
+      wifiBox.querySelector("[data-scan]").addEventListener("click", async () => {
+        const r = await ESS.run(() => ESS.api("/api/network/wifi"));
+        list.innerHTML = r.networks.map((n) => `<option value="${esc(n.ssid)}">${n.signal}% ${esc(n.security)}</option>`).join("");
+        ESS.toast(T("{n} networks found", { n: r.networks.length }), "ok");
+      });
+      wf.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const p = await ESS.run(() => ESS.api("/api/network/wifi", { device: d.device, ssid: wf.elements.ssid.value, password: wf.elements.password.value }));
+        wf.elements.password.value = "";
+        renderPending(p, window.ESS_HOST);
+      });
+    }
+
+    const f = node.querySelector(".ipv4-form");
+    const cfg = d.config;
+    f.elements.method.value = cfg.method === "manual" ? "manual" : "auto";
+    f.elements.address.value = cfg.addresses[0] || "";
+    f.elements.gateway.value = cfg.gateway || "";
+    f.elements.dns.value = cfg.dns.join(", ");
+    const sync = () => f.querySelectorAll(".static-only").forEach((el) => (el.hidden = f.elements.method.value !== "manual"));
+    f.elements.method.addEventListener("change", sync);
+    sync();
+    f.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      if (!ESS.confirm(T("Apply the new IPv4 settings for {dev}?", { dev: d.device }))) return;
+      const p = await ESS.run(() => ESS.api("/api/network/ipv4", { device: d.device, ipv4: {
+        method: f.elements.method.value, address: f.elements.address.value, gateway: f.elements.gateway.value, dns: f.elements.dns.value } }));
+      renderPending(p, window.ESS_HOST);
+    });
+    return node;
+  }
+
+  async function load() {
+    const d = await ESS.api("/api/network");
+    window.ESS_HOST = d.hostname;
+    document.getElementById("unavailable").hidden = d.available;
+    const box = document.getElementById("devices");
+    const tpl = document.getElementById("tpl-device");
+    box.innerHTML = "";
+    d.devices.forEach((dev) => box.appendChild(renderDevice(dev, tpl)));
+    renderPending(d.pending, d.hostname);
+  }
+
+  document.getElementById("btn-confirm").addEventListener("click", async () => {
+    await ESS.run(() => ESS.api("/api/network/confirm", {}), T("Network settings kept"));
+    load();
+  });
+  document.getElementById("btn-rollback").addEventListener("click", async () => {
+    await ESS.run(() => ESS.api("/api/network/rollback", {}), T("Previous network settings restored"));
+    setTimeout(load, 2000);
+  });
+  load().catch((e) => ESS.toast(e.message, "err"));
+})();
+</script>
+{% endblock %}

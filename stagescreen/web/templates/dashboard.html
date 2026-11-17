@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="pending" class="pending-banner mb-3" hidden></div>
+<div class="row g-3">
+  <div class="col-xl-8">
+    <div class="row g-3" id="outputs"></div>
+  </div>
+  <div class="col-xl-4 d-flex flex-column gap-3">
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("System status") }}</span></div>
+      <div class="ess-panel-body">
+        <div class="row g-3">
+          <div class="col-6"><div class="stat-label">{{ _("CPU load") }}</div><div class="stat-big" id="s-cpu">–</div><div class="meter-bar"><div id="b-cpu"></div></div></div>
+          <div class="col-6"><div class="stat-label">{{ _("Temperature") }}</div><div class="stat-big" id="s-temp">–</div><div class="meter-bar"><div id="b-temp"></div></div></div>
+          <div class="col-6"><div class="stat-label">{{ _("Memory") }}</div><div class="stat-big" id="s-mem">–</div><div class="meter-bar"><div id="b-mem"></div></div></div>
+          <div class="col-6"><div class="stat-label">{{ _("Throttling") }}</div><div class="stat-big" id="s-thr">–</div></div>
+        </div>
+        <ul class="small text-warning mt-2 mb-0 ps-3" id="s-flags"></ul>
+      </div>
+    </div>
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Device") }}</span></div>
+      <div class="ess-panel-body"><dl class="kv" id="device"></dl></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const T = ESS.t, esc = ESS.esc;
+
+  function bar(id, pct, warn, crit) {
+    const el = document.getElementById(id);
+    el.style.width = Math.max(0, Math.min(100, pct)) + "%";
+    el.style.background = pct >= crit ? "var(--ess-red)" : pct >= warn ? "var(--ess-amber)" : "var(--ess-green)";
+  }
+
+  function renderStatus(st) {
+    document.getElementById("s-cpu").textContent = Math.round(st.cpu_percent) + " %";
+    bar("b-cpu", st.cpu_percent, 70, 90);
+    const temp = st.temperature_c;
+    document.getElementById("s-temp").textContent = temp == null ? "–" : temp.toFixed(1) + " °C";
+    bar("b-temp", temp == null ? 0 : temp, 70, 80);
+    document.getElementById("s-mem").textContent = st.memory_used_mb + " MB";
+    bar("b-mem", st.memory_percent, 75, 90);
+    document.getElementById("s-thr").textContent = st.throttled == null ? "–" : (st.throttled_now ? T("active") : T("no"));
+    document.getElementById("s-flags").innerHTML = st.throttled_flags.map((f) => `<li>${esc(f)}</li>`).join("");
+  }
+
+  function renderOutputs(outputs) {
+    document.getElementById("outputs").innerHTML = outputs.map((o) => {
+      const mode = o.mode_label ? o.mode_label.replace("@", " @ ") + " Hz" : T("Preferred mode of the monitor");
+      const state = !o.enabled ? T("disabled") : o.mirror_of ? T("mirrors output {n}", { n: o.mirror_of })
+        : o.connected ? T("Monitor connected") : T("No monitor connected");
+      return `<div class="col-md-6"><div class="ess-panel output-card h-100">
+        <div class="ess-panel-head"><span>${esc(o.name)}</span><span class="mono">${esc(o.connector)}</span></div>
+        <div class="ess-panel-body">
+          <div class="screen ${o.connected && o.enabled ? "on" : ""} mb-3"><span class="num">${o.id}</span><span class="tag">${esc(state)}</span></div>
+          <dl class="kv">
+            <dt>${T("Mode")}</dt><dd>${esc(mode)}</dd>
+            <dt>${T("Rotation")}</dt><dd>${o.rotation}°</dd>
+            <dt>${T("Scene")}</dt><dd class="text-dim">${T("available from milestone 3")}</dd>
+          </dl>
+          <a class="btn btn-sm btn-console mt-3" href="/outputs#output-${o.id}">${T("Configure")}</a>
+        </div></div></div>`;
+    }).join("");
+  }
+
+  function renderDevice(d) {
+    const rows = [[T("Host name"), d.hostname], [T("IP addresses"), d.ip_addresses.join(", ") || "—"],
+                  [T("Model"), d.model], [T("Version"), d.version]];
+    document.getElementById("device").innerHTML = rows.map((r) => `<dt>${r[0]}</dt><dd>${esc(r[1])}</dd>`).join("");
+  }
+
+  function renderPending(p) {
+    const el = document.getElementById("pending");
+    el.hidden = !p;
+    if (p) el.innerHTML = `${esc(T("A network change is waiting for confirmation."))} <a href="/network">${esc(T("Open network settings"))}</a>`;
+  }
+
+  ESS.on("dashboard", (d) => { renderStatus(d.status); renderOutputs(d.outputs); renderDevice(d.device); renderPending(d.network_pending); });
+  ESS.on("status", renderStatus);
+})();
+</script>
+{% endblock %}

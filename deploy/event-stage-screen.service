@@ -1,0 +1,25 @@
+[Unit]
+Description=event-stage-screen – stage display for eventrentmanager (web service)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ess
+Group=ess
+SupplementaryGroups=video render
+EnvironmentFile=/etc/event-stage-screen.env
+WorkingDirectory=/opt/event-stage-screen
+ExecStart=/opt/event-stage-screen/.venv/bin/python -m stagescreen
+Restart=always
+RestartSec=2
+# allow binding to port 80 if ESS_PORT=80 is set
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+# NoNewPrivileges and ProtectSystem must stay off: privileged actions run the
+# root helper via sudo as a child of this service, and the helper has to write
+# /etc (hosts, timesyncd drop-in). The service itself runs unprivileged.
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="{{ lang }}" data-bs-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · event-stage-screen</title>
+  {% if vendor_ok %}
+  <link rel="stylesheet" href="/static/vendor/bootstrap/bootstrap.min.css">
+  {% else %}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  {% endif %}
+  <link rel="stylesheet" href="/static/css/app.css?v={{ version }}">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%232fb4e8'/%3E%3Crect x='3' y='4' width='4' height='7' rx='1' fill='%2310141a'/%3E%3Crect x='9' y='4' width='4' height='7' rx='1' fill='%2310141a'/%3E%3C/svg%3E">
+</head>
+<body data-authed="{{ '1' if user else '0' }}">
+{% if user %}
+  {% if not vendor_ok %}<div class="vendor-warning">{{ _("Bootstrap is not installed locally and is loaded from the internet – on the Pi please run deploy/install.sh or scripts/fetch-vendor.sh.") }}</div>{% endif %}
+  <header class="ess-topbar">
+    <div class="container-fluid py-2 d-flex flex-wrap align-items-center gap-3">
+      <a class="ess-brand" href="/"><span class="logo"></span>event-stage-screen</a>
+      <nav class="ess-nav nav flex-wrap" aria-label="{{ _('Main navigation') }}">
+        <a class="nav-link {{ 'active' if active == 'dashboard' }}" href="/">{{ _("Dashboard") }}</a>
+        <a class="nav-link {{ 'active' if active == 'outputs' }}" href="/outputs">{{ _("Outputs") }}</a>
+        <a class="nav-link {{ 'active' if active == 'network' }}" href="/network">{{ _("Network") }}</a>
+        <a class="nav-link {{ 'active' if active == 'system' }}" href="/system">{{ _("System") }}</a>
+        <a class="nav-link {{ 'active' if active == 'logs' }}" href="/logs">{{ _("Logs") }}</a>
+      </nav>
+      <div class="ess-status ms-auto">
+        <span class="ess-pill" id="st-out1"><span class="ess-dot"></span><span class="txt">HDMI 1</span></span>
+        <span class="ess-pill" id="st-out2"><span class="ess-dot"></span><span class="txt">HDMI 2</span></span>
+        <span class="ess-pill" id="st-sys"><span class="ess-dot"></span><span class="txt">…</span></span>
+        <span class="ess-pill mono" title="{{ _('Host name') }}">{{ hostname }}</span>
+        <select class="form-select form-select-sm w-auto ess-lang" id="lang-select" aria-label="{{ _('Language') }}" title="{{ _('Language') }}">
+          {% for code, name in languages.items() %}<option value="{{ code }}" {{ 'selected' if code == lang }}>{{ code|upper }}</option>{% endfor %}
+        </select>
+        <a href="#" id="btn-logout" class="btn btn-sm btn-console" title="{{ _('Log out') }} ({{ user }})" aria-label="{{ _('Log out') }}">⏻</a>
+      </div>
+    </div>
+  </header>
+{% endif %}
+<main class="{{ 'container-fluid py-3' if user else '' }}">
+{% block content %}{% endblock %}
+</main>
+<script>window.ESS_LANG = {{ lang|tojson }}; window.ESS_I18N = {{ js_catalog|tojson }};</script>
+<script src="/static/js/app.js?v={{ version }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block content %}
+<p class="text-dim">{{ _("Video mode and orientation of the two HDMI ports. The settings are applied by the display renderer (milestone 3).") }}</p>
+<div class="row g-3" id="outputs"></div>
+<template id="tpl-output">
+  <div class="col-xl-6">
+    <form class="ess-panel output-form h-100" novalidate>
+      <div class="ess-panel-head"><span class="o-title"></span><span class="o-state small"></span></div>
+      <div class="ess-panel-body">
+        <div class="row g-2">
+          <div class="col-md-6"><label class="form-label">{{ _("Name") }}</label><input class="form-control" name="name" maxlength="40" required></div>
+          <div class="col-md-6"><label class="form-label">{{ _("Connector") }}</label><select class="form-select" name="connector"></select></div>
+          <div class="col-12">
+            <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="enabled"><label class="form-check-label">{{ _("Output enabled") }}</label></div>
+          </div>
+          <div class="col-12 mirror-row">
+            <div class="form-check form-switch"><input class="form-check-input" type="checkbox" name="mirror_of"><label class="form-check-label">{{ _("Mirror output 1") }}</label></div>
+            <div class="form-text">{{ _("Shows the scene of output 1. Scaling, rotation and flipping can be set separately, e.g. for a mirrored teleprompter monitor.") }}</div>
+          </div>
+        </div>
+        <hr>
+        <div class="ess-section-title">{{ _("Video mode") }}</div>
+        <div class="row g-2">
+          <div class="col-md-6">
+            <label class="form-label">{{ _("Mode") }}</label>
+            <select class="form-select" name="mode_kind">
+              <option value="auto">{{ _("Preferred (from monitor)") }}</option>
+              <option value="edid">{{ _("Mode reported by the monitor") }}</option>
+              <option value="custom">{{ _("Custom mode") }}</option>
+            </select>
+          </div>
+          <div class="col-md-6"><label class="form-label">{{ _("Rotation") }}</label><select class="form-select" name="rotation"></select></div>
+          <div class="col-md-6 edid-only"><label class="form-label">{{ _("Resolution") }}</label><select class="form-select" name="edid_res"></select></div>
+          <div class="col-md-6 edid-only"><label class="form-label">{{ _("Refresh rate") }}</label><select class="form-select" name="edid_rate"></select></div>
+          <div class="col-12 custom-only">
+            <label class="form-label">{{ _("Width × height @ refresh rate") }}</label>
+            <input class="form-control mono" name="custom" placeholder="1920x1080@60">
+            <div class="form-text">{{ _("Width × height @ refresh rate, e.g. 1920x1080@50 or 2560x720@59.94 for LED processors.") }}</div>
+          </div>
+        </div>
+        <div class="mirror-settings">
+          <hr>
+          <div class="ess-section-title">{{ _("Mirroring") }}</div>
+          <div class="row g-2">
+            <div class="col-md-6"><label class="form-label">{{ _("Scaling") }}</label>
+              <select class="form-select" name="m_scaling"><option value="letterbox">{{ _("Letterbox (keep aspect ratio)") }}</option><option value="stretch">{{ _("Stretch") }}</option></select></div>
+            <div class="col-md-6"><label class="form-label">{{ _("Additional rotation") }}</label><select class="form-select" name="m_rotation"></select></div>
+            <div class="col-12 d-flex gap-4">
+              <div class="form-check"><input class="form-check-input" type="checkbox" name="m_flip_h"><label class="form-check-label">{{ _("Flip horizontally") }}</label></div>
+              <div class="form-check"><input class="form-check-input" type="checkbox" name="m_flip_v"><label class="form-check-label">{{ _("Flip vertically") }}</label></div>
+            </div>
+          </div>
+        </div>
+        <div class="mt-3 d-flex gap-2"><button class="btn btn-primary" type="submit">{{ _("Save") }}</button></div>
+      </div>
+    </form>
+  </div>
+</template>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  const T = ESS.t, esc = ESS.esc;
+  const box = document.getElementById("outputs");
+  const tpl = document.getElementById("tpl-output");
+
+  const opts = (values, selected, label) => values.map((v) =>
+    `<option value="${esc(v)}" ${String(v) === String(selected) ? "selected" : ""}>${esc(label ? label(v) : v)}</option>`).join("");
+
+  function render(data) {
+    box.innerHTML = "";
+    data.outputs.forEach((o) => {
+      const node = tpl.content.cloneNode(true);
+      const form = node.querySelector("form");
+      form.id = "output-" + o.id;
+      form.querySelector(".o-title").textContent = T("Output {n}", { n: o.id });
+      form.querySelector(".o-state").textContent = !o.detected ? T("Connector not found")
+        : o.connected ? T("Monitor connected") : T("No monitor connected");
+      const f = form.elements;
+      f.name.value = o.name;
+      const connectors = data.connectors.map((c) => c.name);
+      if (!connectors.includes(o.connector)) connectors.unshift(o.connector);
+      f.connector.innerHTML = opts(connectors, o.connector);
+      f.enabled.checked = o.enabled;
+      f.mirror_of.checked = !!o.mirror_of;
+      if (o.id !== 2) form.querySelector(".mirror-row").remove();
+      f.rotation.innerHTML = opts(data.rotations, o.rotation, (v) => v + "°");
+      f.m_rotation.innerHTML = opts(data.rotations, o.mirror.rotation, (v) => v + "°");
+      f.m_scaling.value = o.mirror.scaling;
+      f.m_flip_h.checked = o.mirror.flip_h;
+      f.m_flip_v.checked = o.mirror.flip_v;
+
+      const modes = o.modes.length ? o.modes : ["1920x1080", "1280x720", "3840x2160"];
+      f.edid_res.innerHTML = opts(modes, o.mode ? `${o.mode.width}x${o.mode.height}` : modes[0]);
+      f.edid_rate.innerHTML = opts(data.refresh_rates, o.mode ? o.mode.refresh : 60, (v) => v + " Hz");
+      f.custom.value = o.mode_label || "";
+      f.mode_kind.value = !o.mode ? "auto" : o.custom_mode ? "custom" : "edid";
+
+      const sync = () => {
+        const kind = f.mode_kind.value;
+        form.querySelectorAll(".edid-only").forEach((el) => (el.hidden = kind !== "edid"));
+        form.querySelector(".custom-only").hidden = kind !== "custom";
+        const ms = form.querySelector(".mirror-settings");
+        if (ms) ms.hidden = !(f.mirror_of && f.mirror_of.checked);
+      };
+      f.mode_kind.addEventListener("change", sync);
+      if (f.mirror_of) f.mirror_of.addEventListener("change", sync);
+      sync();
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const kind = f.mode_kind.value;
+        const mode = kind === "auto" ? "" : kind === "custom" ? f.custom.value.trim() : `${f.edid_res.value}@${f.edid_rate.value}`;
+        await ESS.run(() => ESS.api("/api/outputs/" + o.id, {
+          name: f.name.value, connector: f.connector.value, enabled: f.enabled.checked,
+          mirror_of: f.mirror_of && f.mirror_of.checked ? 1 : null,
+          mode, custom_mode: kind === "custom", rotation: Number(f.rotation.value),
+          mirror: { scaling: f.m_scaling.value, rotation: Number(f.m_rotation.value), flip_h: f.m_flip_h.checked, flip_v: f.m_flip_v.checked },
+        }), T("Saved"));
+      });
+      box.appendChild(node);
+    });
+    if (location.hash) { const el = document.querySelector(location.hash); if (el) el.scrollIntoView(); }
+  }
+
+  ESS.api("/api/outputs").then(render).catch((e) => ESS.toast(e.message, "err"));
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="login-wrap">
+  <div class="login-card ess-panel">
+    <div class="ess-panel-body p-4">
+      <div class="ess-brand mb-1 fs-5"><span class="logo"></span>event-stage-screen</div>
+      <p class="text-dim mb-4">{{ _("Welcome! First create the administrator account for the web interface.") }}</p>
+      <form id="setup-form">
+        <div class="mb-3"><label class="form-label" for="u">{{ _("User name") }}</label><input class="form-control" id="u" name="username" value="admin" autocomplete="username" required></div>
+        <div class="mb-3"><label class="form-label" for="pw">{{ _("Password") }} <span class="text-dim">({{ _("at least 8 characters") }})</span></label><input class="form-control" id="pw" name="password" type="password" autocomplete="new-password" minlength="8" required autofocus></div>
+        <div class="mb-3"><label class="form-label" for="pw2">{{ _("Repeat password") }}</label><input class="form-control" id="pw2" name="password2" type="password" autocomplete="new-password" minlength="8" required></div>
+        <div class="mb-3"><label class="form-label" for="lang">{{ _("Language") }}</label>
+          <select class="form-select" id="lang">{% for code, name in languages.items() %}<option value="{{ code }}" {{ 'selected' if code == lang }}>{{ name }}</option>{% endfor %}</select></div>
+        <div class="text-danger small mb-2" id="err" role="alert"></div>
+        <button class="btn btn-primary w-100" type="submit">{{ _("Create account") }}</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.getElementById("setup-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const err = document.getElementById("err");
+  err.textContent = "";
+  if (e.target.password.value !== e.target.password2.value) { err.textContent = ESS.t("The passwords do not match."); return; }
+  try {
+    await ESS.api("/api/auth/setup", { username: e.target.username.value, password: e.target.password.value });
+    await ESS.api("/api/ui/language", { language: document.getElementById("lang").value });
+    location.href = "/";
+  } catch (ex) { err.textContent = ex.message; }
+});
+</script>
+{% endblock %}
