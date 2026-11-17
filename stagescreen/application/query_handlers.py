@@ -67,6 +67,7 @@ def register_query_handlers(bus: QueryBus, s: Services) -> None:
                 "version": __version__,
             },
             "network_pending": s.network.state(),
+            "erm": [s.erm.output_status(n) for n in (1, 2)],
         }
 
     async def get_outputs(_: q.GetOutputs) -> dict[str, Any]:

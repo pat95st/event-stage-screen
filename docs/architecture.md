@@ -47,6 +47,30 @@ changes through `/api/render/stream` (SSE).
 Media (images, fonts) live in `<data>/media`; types are detected from the file
 content. SVGs are served with a restrictive Content-Security-Policy.
 
+## eventrentmanager
+
+`infrastructure/erm.py` polls the ERM Display API (`GET /api/display/v1/state`,
+bearer token `mvd_…`) – one poller per distinct token, in the interval the
+server asks for (`pollIntervalSeconds`), with back-off on errors and a slower
+retry after `401`. Each output has its own token; output 2 can use "the same
+data as output 1". The poller keeps the last payload, the clock offset
+(`serverTime − local time`, measured around the request) and a status
+(`online`, `offline`, `unauthorized`).
+
+Render pages get the ERM data separately from the scene
+(`/api/render/<n>/erm`, SSE topic `erm`), so only the ERM elements are
+refreshed. `web/static/js/erm-render.js` renders the `erm` element type
+(`props.field`: countdown, progress, current, description, notes, next, delay,
+messages, nostrobe, itemlist, mics, program, status) with the same semantics
+as the ERM browser client `/display`; countdowns tick locally on the ERM clock.
+Clocks use the ERM server time by default and fall back to the device clock.
+When the connection is lost the last state stays on screen and the `status`
+element shows "offline". The editor previews with live data or built-in sample
+data; "Full stage display" inserts the `/display` layout as individual elements.
+
+For tests and local development `tests/fake_erm.py` serves a realistic Display
+API (`python -m tests.fake_erm --port 8099`).
+
 ## Kiosk
 
 `event-stage-screen-kiosk.service` opens a logind session on tty1 for the

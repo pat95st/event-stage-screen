@@ -109,11 +109,21 @@
     });
   };
 
+  ESS.renderErmPill = function (list) {
+    const configured = list.filter((o) => o.status !== "unconfigured");
+    if (!configured.length) { setPill("st-erm", "", "ERM", T("eventrentmanager not configured")); return; }
+    const bad = configured.filter((o) => o.status === "offline" || o.status === "unauthorized");
+    const ok = configured.every((o) => o.status === "online");
+    setPill("st-erm", bad.length ? "err" : ok ? "ok" : "warn", "ERM",
+      configured.map((o) => `${T("Output {n}", { n: o.id })}: ${o.display_name || o.status}${o.message ? " – " + o.message : ""}`).join("\n"));
+  };
+
   ESS.refreshStatus = async function () {
     try {
       const d = await ESS.api("/api/dashboard");
       ESS.renderStatus(d.status);
       ESS.renderOutputPills(d.outputs);
+      ESS.renderErmPill(d.erm);
       emit("dashboard", d);
     } catch (e) { /* status bar is best effort */ }
   };

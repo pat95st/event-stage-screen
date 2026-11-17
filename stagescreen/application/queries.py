@@ -84,3 +84,13 @@ class GetRenderState(Query):
 @dataclass
 class GetKioskConfig(Query):
     pass
+
+
+@dataclass
+class GetErmStatus(Query):
+    pass
+
+
+@dataclass
+class GetRenderErm(Query):
+    output_id: int

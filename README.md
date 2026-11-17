@@ -16,14 +16,17 @@ in a Bootstrap-based web application on the device.
 | 1. Spike: dual HDMI + NDI | done, waiting for measurements on real hardware |
 | 2. Skeleton: web UI, login, settings, installer, CI | done |
 | 3. Renderer and scene editor | done |
-| 4. eventrentmanager integration | next |
-| 5. NDI | open |
+| 4. eventrentmanager integration | done |
+| 5. NDI | next |
 | 6. Automation, API, setup aids, updates | open |
 
-The web interface currently offers: a scene editor (text, image, clock and
-colour elements; move, resize, rotate, flip, crop, opacity, layers, lock,
+The web interface currently offers: a scene editor (text, image, clock,
+colour and eventrentmanager elements – countdown, progress, current/next item,
+trade notes, delay, messages, no-strobe banner, item list and more, plus a
+"full stage display" quick start; move, resize, rotate, flip, crop, opacity, layers, lock,
 snapping, undo/redo; draft + apply or live editing; import/export), a media
 library (images and fonts), dashboard (outputs and system status),
+eventrentmanager connection (display token per output),
 output settings (video mode incl. custom modes, rotation, mirroring of output 1
 to output 2), network (DHCP/static, Wi-Fi, automatic rollback), system (host
 name, time zone, NTP, NDI source limit, reboot/shutdown, backup/restore,

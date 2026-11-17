@@ -319,6 +319,7 @@ def register_scene_handlers(commands: CommandBus, queries: QueryBus, s: Services
             "output_name": cfg.name,
             "timezone": s.timezone(),
             "locale": s.settings.get("ui.language", "en"),
+            "erm": {**s.erm.render_data(source), "now_ms": round(time.time() * 1000)},
         }
 
     def kiosk_config(_: q.GetKioskConfig) -> dict:

@@ -19,6 +19,12 @@
   let state = null;
   let current = null; // {layer, stage, sceneId, json}
   let lastJson = "";
+  let erm = {};
+
+  /** ERM data plus the skew between this browser's clock and the Pi clock. */
+  function withSkew(e) {
+    return Object.assign({}, e, { skew: e && e.now_ms ? e.now_ms - Date.now() : 0 });
+  }
 
   const mediaUrl = (id) => `/media/${encodeURIComponent(id)}${q}`;
 
@@ -74,7 +80,7 @@
     const layer = document.createElement("div");
     layer.className = "layer";
     frame.appendChild(layer);
-    const stage = SceneRender.createStage(layer, { mediaUrl, timezone: state.timezone, locale: state.locale || "en" });
+    const stage = SceneRender.createStage(layer, { mediaUrl, timezone: state.timezone, locale: state.locale || "en", erm });
     stage.render(scene);
     return { layer, stage };
   }
@@ -122,8 +128,11 @@
       const res = await fetch(`/api/render/${output}/state${q}`, { cache: "no-store" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       const st = (await res.json()).result;
-      const json = JSON.stringify(st);
+      erm = withSkew(st.erm);
+      const rest = Object.assign({}, st, { erm: null });
+      const json = JSON.stringify(rest);
       if (json !== lastJson) { lastJson = json; apply(st); }
+      else if (current) current.stage.setErm(erm);
     } catch (e) {
       console.warn("render state unavailable", e);
     }
@@ -132,10 +141,21 @@
   let pending = null;
   function scheduleLoad() { clearTimeout(pending); pending = setTimeout(load, 80); }
 
+  let ermPending = null;
+  async function loadErm() {
+    try {
+      const res = await fetch(`/api/render/${output}/erm${q}`, { cache: "no-store" });
+      if (!res.ok) return;
+      erm = withSkew((await res.json()).result);
+      if (current) current.stage.setErm(erm);
+    } catch (e) { /* keep showing the last state */ }
+  }
+
   function connect() {
     const es = new EventSource("/api/render/stream" + q);
     es.addEventListener("changed", (m) => {
       const data = JSON.parse(m.data);
+      if (data.topic === "erm") { clearTimeout(ermPending); ermPending = setTimeout(loadErm, 50); return; }
       if (data.topic === "media") document.getElementById("fonts-css").href = "/api/fonts.css" + q + (q ? "&" : "?") + "t=" + Date.now();
       scheduleLoad();
     });

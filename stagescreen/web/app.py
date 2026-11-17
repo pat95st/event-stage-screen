@@ -409,6 +409,15 @@ def create_app(services: Services) -> Starlette:
         Route("/api/fonts", query(lambda r: q.GetFonts())),
         Route("/api/fonts.css", fonts_css),
 
+        # eventrentmanager
+        Route("/erm", page("erm.html", "erm", "eventrentmanager")),
+        Route("/api/erm", query(lambda r: q.GetErmStatus())),
+        Route("/api/erm/settings", command(lambda r, d: c.SaveErmSettings(str(d.get("base_url") or ""), bool(d.get("verify_tls", True)))), methods=["POST"]),
+        Route("/api/erm/outputs/{id:int}", command(lambda r, d: c.SetErmToken(p(r, "id"), d.get("token"), str(d.get("source") or "own"))), methods=["POST"]),
+        Route("/api/erm/test", command(lambda r, d: c.TestErmConnection(str(d.get("base_url") or ""), bool(d.get("verify_tls", True)),
+                                                                        d.get("token") or None, _opt_int(d.get("output_id")))), methods=["POST"]),
+        Route("/api/render/{n:int}/erm", query(lambda r: q.GetRenderErm(p(r, "n")))),
+
         # render pages and kiosk agent
         Route("/api/render/stream", api_render_stream),
         Route("/api/render/{n:int}/state", query(lambda r: q.GetRenderState(p(r, "n")))),

@@ -19,7 +19,29 @@ from typing import Any
 from ..application.bus import DomainError
 from ..i18n import Msg
 
-ELEMENT_TYPES = ("text", "image", "clock", "color")
+ELEMENT_TYPES = ("text", "image", "clock", "color", "erm")
+ERM_FIELDS = ("countdown", "progress", "current", "description", "notes", "next", "delay", "messages",
+              "nostrobe", "itemlist", "mics", "program", "status")
+NOTE_KEYS = ("general", "sound", "light", "video", "stage", "other")
+# Extra properties per ERM field: name -> (kind, default, [min, max] | choices)
+ERM_EXTRAS: dict[str, dict[str, tuple]] = {
+    "countdown": {"warn_color": ("color", "#f59e0b"), "critical_color": ("color", "#ef4444"),
+                  "show_pending": ("bool", True), "finished_text": ("text", "", 60)},
+    "progress": {"bar_color": ("color", "#22c55e"), "track_color": ("color", "#2e333b"), "radius": ("num", 999, 0, 10000)},
+    "current": {"show_position": ("bool", True), "label": ("text", "", 60)},
+    "description": {},
+    "notes": {"notes_filter": ("choice", "erm", ("erm", "all", "custom")), "notes_keys": ("keys", ["general", "stage"]),
+              "show_labels": ("bool", True), "note_background": ("color", "transparent")},
+    "next": {"label": ("text", "", 60), "show_time": ("bool", True), "show_in": ("bool", True)},
+    "delay": {"on_time_color": ("color", "#d6dae0"), "late_color": ("color", "#ef4444"), "early_color": ("color", "#22c55e")},
+    "messages": {"message_color": ("color", "#60a5fa"), "urgent_color": ("color", "#ef4444"), "max_messages": ("num", 3, 1, 10)},
+    "nostrobe": {"label": ("text", "", 60)},
+    "itemlist": {"max_rows": ("num", 8, 1, 50), "show_duration": ("bool", True), "show_done": ("bool", False),
+                 "highlight_color": ("color", "#2fb4e8")},
+    "mics": {},
+    "program": {"template": ("text", "{program} · {room}", 200)},
+    "status": {"show_online": ("bool", False), "label": ("text", "", 60)},
+}
 MAX_ELEMENTS = 200
 COLOR_RE = re.compile(r"^(#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|transparent)$")
 FONT_RE = re.compile(r"^[\w .'-]{1,80}$", re.UNICODE)
@@ -123,7 +145,29 @@ def _props(kind: str, p: dict[str, Any]) -> dict[str, Any]:
             "second_color": _color(p.get("second_color"), "#e5484d", "Second hand colour"),
             "tick_color": _color(p.get("tick_color"), "#bbbbbb", "Tick colour"),
             "show_seconds": bool(p.get("show_seconds", True)),
+            "time_source": _choice(p.get("time_source"), ("erm", "system"), "erm", "Time source"),
         }
+    if kind == "erm":
+        field = _choice(p.get("field"), ERM_FIELDS, "countdown", "ERM field")
+        props = {**_common_text_props(p), "field": field,
+                 "time_source": _choice(p.get("time_source"), ("erm", "system"), "erm", "Time source")}
+        for key, spec in ERM_EXTRAS[field].items():
+            kind_, default = spec[0], spec[1]
+            value = p.get(key)
+            if kind_ == "color":
+                props[key] = _color(value, default, key)
+            elif kind_ == "bool":
+                props[key] = bool(default if value is None else value)
+            elif kind_ == "num":
+                props[key] = _num(value, default, spec[2], spec[3], key)
+            elif kind_ == "text":
+                props[key] = _text(value, default, spec[2], key)
+            elif kind_ == "choice":
+                props[key] = _choice(value, spec[2], default, key)
+            elif kind_ == "keys":
+                keys = value if isinstance(value, list) else default
+                props[key] = [k for k in NOTE_KEYS if k in keys]
+        return props
     if kind == "image":
         media_id = p.get("media_id") or None
         if media_id is not None and not (isinstance(media_id, str) and ID_RE.fullmatch(media_id)):
@@ -219,4 +263,4 @@ def media_ids(scene: dict[str, Any]) -> set[str]:
 
 
 def fonts_used(scene: dict[str, Any]) -> set[str]:
-    return {e["props"]["font"] for e in scene.get("elements", []) if e["type"] in ("text", "clock")}
+    return {e["props"]["font"] for e in scene.get("elements", []) if e["type"] in ("text", "clock", "erm")}

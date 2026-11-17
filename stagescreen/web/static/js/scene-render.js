@@ -62,6 +62,7 @@
   const H_ALIGN = { left: "flex-start", center: "center", right: "flex-end" };
   const V_ALIGN = { top: "flex-start", middle: "center", bottom: "flex-end" };
 
+  SR.textStyle = textStyle;
   function textStyle(node, p) {
     node.style.fontFamily = fontStack(p.font);
     node.style.fontSize = p.size + "px";
@@ -112,6 +113,10 @@
       span.style.overflowWrap = "anywhere";
       span.textContent = p.text;
       node.appendChild(span);
+    } else if (el.type === "erm") {
+      node._erm = el;
+      ctx.ermNodes.push(node);
+      if (SR.renderErm) SR.renderErm(node, el, ctx);
     } else if (el.type === "clock") {
       if (p.style === "analog") {
         node.innerHTML = analogSvg(p);
@@ -150,9 +155,16 @@
       <circle cx="50" cy="50" r="2.6" fill="${p.show_seconds ? p.second_color : p.hand_color}"/></svg>`;
   }
 
+  /** Clock time: ERM server time (default, falls back to the Pi clock) or the Pi clock. */
+  function clockTime(p, ctx) {
+    if (!SR.ermClock) return ctx.now();
+    const c = SR.ermClock(ctx);
+    return p.time_source === "system" ? c.pi : (c.erm !== null ? c.erm : c.pi);
+  }
+
   function updateClock(node, ctx) {
     const p = node._clock;
-    const now = new Date(ctx.now());
+    const now = new Date(clockTime(p, ctx));
     if (node.dataset.clock === "analog") {
       const t = SR.timeParts(now, ctx.timezone);
       const set = (cls, deg) => { const l = node.querySelector("." + cls); if (l) l.setAttribute("transform", `rotate(${deg} 50 50)`); };
@@ -212,14 +224,18 @@
     const ctx = {
       mediaUrl: opts.mediaUrl || ((id) => "/media/" + id),
       timezone: opts.timezone, locale: opts.locale || "en",
-      now: opts.now || (() => Date.now()), editor: !!opts.editor, t: opts.t, clocks: [],
+      now: opts.now || (() => Date.now()), editor: !!opts.editor, t: opts.t, clocks: [], ermNodes: [],
+      erm: opts.erm || {},
     };
     const root = document.createElement("div");
     root.className = "sr-stage";
     root.style.cssText = "position:absolute;left:0;top:0;transform-origin:0 0;overflow:hidden";
     container.appendChild(root);
     let scene = null;
-    const timer = setInterval(() => ctx.clocks.forEach((n) => updateClock(n, ctx)), 250);
+    const timer = setInterval(() => {
+      ctx.clocks.forEach((n) => updateClock(n, ctx));
+      ctx.ermNodes.forEach((n) => { if (n._tick) n._tick(); });
+    }, 250);
 
     const stage = {
       root, ctx,
@@ -227,6 +243,7 @@
       render(next) {
         scene = next;
         ctx.clocks = [];
+        ctx.ermNodes = [];
         root.innerHTML = "";
         root.style.width = scene.width + "px";
         root.style.height = scene.height + "px";
@@ -237,9 +254,16 @@
       patch(el) {
         const old = root.querySelector(`.sr-el[data-id="${CSS.escape(el.id)}"]`);
         ctx.clocks = ctx.clocks.filter((n) => !old || !old.contains(n));
+        ctx.ermNodes = ctx.ermNodes.filter((n) => !old || !old.contains(n));
         const node = elementNode(el, ctx);
         if (old) old.replaceWith(node); else root.appendChild(node);
         return node;
+      },
+      /** New eventrentmanager data: refresh only the ERM elements and clocks. */
+      setErm(erm) {
+        ctx.erm = erm || {};
+        if (SR.renderErm) ctx.ermNodes.forEach((n) => SR.renderErm(n, n._erm, ctx));
+        ctx.clocks.forEach((n) => updateClock(n, ctx));
       },
       node(id) { return root.querySelector(`.sr-el[data-id="${CSS.escape(id)}"]`); },
       /** Scale the stage into a box of w×h CSS px; returns {scale, x, y, sx, sy}. */

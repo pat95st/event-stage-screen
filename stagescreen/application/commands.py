@@ -193,3 +193,28 @@ class SaveSplash(Command):
 @dataclass
 class ReportKioskState(Command):
     report: dict[str, Any]
+
+
+# ------------------------------------------------------------------ eventrentmanager
+
+@dataclass
+class SaveErmSettings(Command):
+    base_url: str
+    verify_tls: bool = True
+
+
+@dataclass
+class SetErmToken(Command):
+    """Token and source of an output. ``token=None`` keeps the stored token, "" removes it."""
+
+    output_id: int
+    token: str | None = None
+    source: str = "own"
+
+
+@dataclass
+class TestErmConnection(Command):
+    base_url: str
+    verify_tls: bool = True
+    token: str | None = None
+    output_id: int | None = None

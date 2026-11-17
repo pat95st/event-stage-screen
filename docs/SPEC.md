@@ -120,6 +120,12 @@ edges, numeric input in a properties panel.
   flow, which will be added to eventrentmanager as a separate step
   (analogous to `POST /api/player/v1/pair`).
 
+Implementation notes (milestone 4): ERM elements are one element type
+(`erm`) with a selectable field; the countdown thresholds come from the ERM
+display configuration; the trade-notes filter defaults to the display's
+`notes[]` and can be set to "all trades" or a custom selection; labels on the
+outputs follow the UI language.
+
 ## 6. NDI
 
 - Discovery via mDNS plus optional NDI discovery servers.

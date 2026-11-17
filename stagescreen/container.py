@@ -12,12 +12,14 @@ from pathlib import Path
 
 from .application.bus import CommandBus, QueryBus
 from .application.command_handlers import register_command_handlers
+from .application.erm_handlers import register_erm_handlers
 from .application.query_handlers import register_query_handlers
 from .application.scene_handlers import register_scene_handlers
 from .config import AppConfig
 from .infrastructure import system
 from .infrastructure.auth import SessionManager
 from .infrastructure.db import Database
+from .infrastructure.erm import ErmService
 from .infrastructure.events import EventHub
 from .infrastructure.logs import ring
 from .infrastructure.media import MediaStore
@@ -68,14 +70,16 @@ class Services:
         self.privileged = privileged
         self.network = network or NetworkService(self.privileged)
         self.events = EventHub()
+        self.erm = ErmService(self.settings, self.notify_change)
 
         self.commands = CommandBus()
         self.queries = QueryBus()
         register_command_handlers(self.commands, self)
         register_query_handlers(self.queries, self)
         register_scene_handlers(self.commands, self.queries, self)
+        register_erm_handlers(self.commands, self.queries, self)
         self._status_task: asyncio.Task | None = None
-        self._change_pending = False
+        self._pending_topics: set[str] = set()
 
     # ------------------------------------------------------------------ helpers used by handlers
 
@@ -124,19 +128,20 @@ class Services:
         return tz
 
     def notify_change(self, topic: str = "state") -> None:
-        """Coalesce change notifications into one SSE 'changed' event per loop tick."""
-        if self._change_pending:
-            return
-        self._change_pending = True
+        """Coalesce change notifications: one SSE 'changed' event per topic and loop tick."""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            self._change_pending = False
+            return
+        first = not self._pending_topics
+        self._pending_topics.add(topic)
+        if not first:
             return
 
         def fire() -> None:
-            self._change_pending = False
-            self.events.publish("changed", {"topic": topic, "t": time.time()})
+            topics, self._pending_topics = self._pending_topics, set()
+            for name in sorted(topics):
+                self.events.publish("changed", {"topic": name, "t": time.time()})
 
         loop.call_soon(fire)
 
@@ -156,11 +161,13 @@ class Services:
         self.events.bind_loop(loop)
         ring().listeners.append(lambda e: self.events.publish_threadsafe("log", e))
         self._status_task = asyncio.create_task(self._status_loop(), name="ess-status")
+        self.erm.start()
         log.info("event-stage-screen started on %s – web interface on port %d", self.model, self.config.port)
 
     async def shutdown(self) -> None:
         if self._status_task:
             self._status_task.cancel()
+        self.erm.stop()
         self.db.close()
 
     async def _status_loop(self) -> None:
