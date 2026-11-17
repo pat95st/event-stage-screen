@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run one measurement scenario in a labwc kiosk session.
+# Run one measurement scenario in a sway kiosk session.
 #
 #   ./run.sh <scenario> [duration_seconds]
 #
@@ -7,7 +7,6 @@
 # existing desktop session. Environment overrides:
 #   NDI_SOURCE      NDI source name used by scenarios with *_SOURCE=ndi
 #   OUT1_NAME/OUT2_NAME  Wayland output names (default HDMI-A-1 / HDMI-A-2)
-#   SPIKE_MATCH     identifier (default) or title — how labwc matches windows
 #   SPIKE_PORT      spike server port (default 8090)
 set -euo pipefail
 
@@ -40,7 +39,7 @@ PORT="${SPIKE_PORT:-8090}"
 DATA_DIR="$HERE/data"
 mkdir -p "$DATA_DIR"
 RUNTIME="${XDG_RUNTIME_DIR:-/tmp}/ess-spike"
-rm -rf "$RUNTIME" && mkdir -p "$RUNTIME/labwc"
+rm -rf "$RUNTIME" && mkdir -p "$RUNTIME/sway"
 
 # Optional NDI plugin/runtime installed by setup.sh --with-ndi.
 if [[ -d "$HERE/.ndi/plugins" ]]; then
@@ -69,26 +68,17 @@ export OUT1_QUERY OUT2_QUERY
 OUT1_QUERY="$(query_for 1)"
 OUT2_QUERY="$(query_for 2)"
 
-# labwc configuration: one window rule per output.
-match_attr="identifier"
-[[ "${SPIKE_MATCH:-identifier}" == "title" ]] && match_attr="title"
-cat > "$RUNTIME/labwc/rc.xml" <<EOF
-<?xml version="1.0"?>
-<labwc_config>
-  <core><gap>0</gap></core>
-  <windowRules>
-    <windowRule ${match_attr}="ess-output-1*" serverDecoration="no">
-      <action name="MoveToOutput" output="${OUT1_NAME}"/>
-      <action name="ToggleFullscreen"/>
-    </windowRule>
-    <windowRule ${match_attr}="ess-output-2*" serverDecoration="no">
-      <action name="MoveToOutput" output="${OUT2_NAME}"/>
-      <action name="ToggleFullscreen"/>
-    </windowRule>
-  </windowRules>
-</labwc_config>
+# sway configuration: one window rule per output. In --app mode Chromium's
+# Wayland app_id is derived from the URL (...__output_<n>-...), so match on that.
+cat > "$RUNTIME/sway/config" <<EOF
+xwayland disable
+default_border none
+seat * hide_cursor 1000
+output * bg #000000 solid_color
+for_window [app_id="__output_1-"] move container to output "${OUT1_NAME}", fullscreen enable
+for_window [app_id="__output_2-"] move container to output "${OUT2_NAME}", fullscreen enable
+exec $HERE/kiosk/session.sh
 EOF
-: > "$RUNTIME/labwc/menu.xml"
 
 # Start the spike server.
 export SPIKE_DATA_DIR="$DATA_DIR" SPIKE_SCENARIO="$SCENARIO"
@@ -106,5 +96,5 @@ echo "  output 2 ($OUT2_NAME, ${OUT2_MODE:-auto}): ${OUT2_QUERY:-scene only}"
 
 export HERE RUNTIME PORT DURATION SCENARIO DATA_DIR
 export OUT1_NAME OUT2_NAME OUT1_MODE OUT2_MODE OUT1_ENABLED OUT2_ENABLED
-labwc -C "$RUNTIME/labwc" -s "$HERE/kiosk/session.sh" >"$DATA_DIR/labwc-$SCENARIO.log" 2>&1 || true
+sway --config "$RUNTIME/sway/config" >"$DATA_DIR/sway-$SCENARIO.log" 2>&1 || true
 echo "done. Create the report with: .venv/bin/python -m spike report"

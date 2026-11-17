@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Started by labwc (-s) from run.sh: applies output modes, launches one
+# Started by sway (exec) from run.sh: applies output modes, launches one
 # Chromium window per output, waits for the scenario duration, then exits.
 set -uo pipefail
 
@@ -38,7 +38,6 @@ launch() {
   local n="$1" query="$2"
   "$CHROMIUM" \
     --ozone-platform=wayland \
-    --class="ess-output-$n" \
     --user-data-dir="$RUNTIME/chromium-$n" \
     --app="http://127.0.0.1:$PORT/output/$n?$query" \
     --no-first-run --noerrdialogs --disable-infobars \
@@ -58,4 +57,4 @@ sleep "$DURATION"
 log "duration reached, exiting"
 pkill -f "user-data-dir=$RUNTIME/chromium-" || true
 sleep 1
-labwc --exit 2>/dev/null || kill "${LABWC_PID:-0}" 2>/dev/null || true
+swaymsg exit >/dev/null 2>&1 || true

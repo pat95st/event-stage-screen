@@ -18,7 +18,7 @@ log = logging.getLogger("spike.metrics")
 
 PROCESS_GROUPS = {
     "chromium": ("chromium", "chrome", "chromium-browser"),
-    "labwc": ("labwc", "Xwayland"),
+    "sway": ("sway", "Xwayland"),
     "spike": ("python", "python3"),
 }
 
