@@ -28,6 +28,8 @@ class AppConfig:
     drm_dir: Path = Path("/sys/class/drm")
     # Offer GStreamer test patterns as NDI sources (development and tests only).
     ndi_test_sources: bool = False
+    # GitHub repository whose releases are offered as updates
+    update_repo: str = "pat95st/event-stage-screen"
 
     @property
     def db_path(self) -> Path:
@@ -40,6 +42,10 @@ class AppConfig:
     @property
     def media_dir(self) -> Path:
         return self.data_dir / "media"
+
+    @property
+    def backup_dir(self) -> Path:
+        return self.data_dir / "backups"
 
     @property
     def tmp_dir(self) -> Path:
@@ -65,4 +71,5 @@ class AppConfig:
             helper_path=os.environ.get("ESS_HELPER", DEFAULT_HELPER),
             drm_dir=Path(os.environ.get("ESS_DRM_DIR", "/sys/class/drm")),
             ndi_test_sources=os.environ.get("ESS_NDI_TEST_SOURCES") == "1",
+            update_repo=os.environ.get("ESS_UPDATE_REPO", "pat95st/event-stage-screen"),
         )

@@ -225,3 +225,87 @@ class TestErmConnection(Command):
 @dataclass
 class SetNdiDiscoveryServers(Command):
     servers: list[str] = field(default_factory=list)
+
+
+# ------------------------------------------------------------------ setup aids
+
+@dataclass
+class SetBlackout(Command):
+    """``output_id=None`` → all outputs; ``on=None`` → toggle."""
+
+    output_id: int | None = None
+    on: bool | None = None
+
+
+@dataclass
+class SetTestPattern(Command):
+    output_id: int | None = None
+    pattern: str | None = None  # bars | grid | edges | None (off)
+
+
+@dataclass
+class IdentifyOutputs(Command):
+    output_id: int | None = None
+    seconds: float = 6.0
+
+
+@dataclass
+class StoreThumbnail(Command):
+    output_id: int
+    data: bytes
+
+
+# ------------------------------------------------------------------ automation
+
+@dataclass
+class SaveAutomation(Command):
+    output_id: int
+    enabled: bool
+    rules: list[dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
+class ResumeAutomation(Command):
+    output_id: int
+
+
+# ------------------------------------------------------------------ remote control (REST API v1)
+
+@dataclass
+class CreateApiKey(Command):
+    name: str
+
+
+@dataclass
+class DeleteApiKey(Command):
+    key_id: str
+
+
+@dataclass
+class ActivateSceneRef(Command):
+    """Activate a scene by id or (case-insensitive) name."""
+
+    output_id: int
+    scene: str
+
+
+@dataclass
+class CycleScene(Command):
+    output_id: int
+    step: int = 1
+
+
+@dataclass
+class SetElementVisibility(Command):
+    """Show/hide an element of the live scene (``visible=None`` toggles)."""
+
+    output_id: int
+    element: str
+    visible: bool | None = None
+
+
+# ------------------------------------------------------------------ updates
+
+@dataclass
+class InstallUpdate(Command):
+    tag: str

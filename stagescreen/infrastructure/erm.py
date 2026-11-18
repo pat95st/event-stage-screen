@@ -133,6 +133,8 @@ class PollerState:
     received_at: float = 0.0        # local epoch seconds of the last successful poll
     last_error_at: float = 0.0
     poll_interval: float = DEFAULT_POLL_S
+    # since when the server is not reachable (counts from the start until the first success)
+    offline_since: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict[str, Any]:
         d = self.data or {}
@@ -166,10 +168,12 @@ class ErmPoller:
         try:
             data = self.client.fetch_state(self.token)
         except ErmUnauthorized as exc:
+            self._went_offline()
             self.state.status, self.state.message, self.state.last_error_at = "unauthorized", str(exc), time.time()
             self._changed_if(before)
             return 15.0
         except ErmError as exc:
+            self._went_offline()
             self.state.status, self.state.message, self.state.last_error_at = "offline", str(exc), time.time()
             self._changed_if(before)
             return min(30.0, max(5.0, self.state.poll_interval * 2))
@@ -180,6 +184,7 @@ class ErmPoller:
         self.state.poll_interval = float(min(60, max(1, data.get("pollIntervalSeconds") or DEFAULT_POLL_S)))
         self.state.received_at = received
         self.state.status, self.state.message = "online", None
+        self.state.offline_since = 0.0
         fingerprint = json.dumps({k: v for k, v in data.items() if k != "serverTime"}, sort_keys=True)
         if fingerprint != self._fingerprint or before[0] != "online":
             self._fingerprint = fingerprint
@@ -188,6 +193,10 @@ class ErmPoller:
         else:
             self.state.data = data
         return self.state.poll_interval
+
+    def _went_offline(self) -> None:
+        if self.state.status == "online" or not self.state.offline_since:
+            self.state.offline_since = time.time()
 
     def _changed_if(self, before: tuple) -> None:
         if (self.state.status, self.state.message) != before:

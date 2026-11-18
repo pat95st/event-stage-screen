@@ -17,6 +17,7 @@ from ..infrastructure.display import detect_connectors
 from ..infrastructure.logs import ring
 from . import queries as q
 from .bus import QueryBus
+from .control_handlers import overlay_view
 
 if TYPE_CHECKING:
     from ..container import Services
@@ -41,6 +42,8 @@ def register_query_handlers(bus: QueryBus, s: Services) -> None:
             active = s.scene_repo.get(active_id) if active_id else None
             items.append({
                 "scene_name": active["name"] if active else None,
+                "overlay": overlay_view(s, cfg.id),
+                "thumbnail_at": s.thumbnails[cfg.id][1] if cfg.id in s.thumbnails else None,
                 **cfg.to_dict(),
                 "detected": con is not None or reported is not None,
                 "connected": bool((con and con.connected) or (reported and kiosk_modes)),

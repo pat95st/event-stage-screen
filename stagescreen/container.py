@@ -10,8 +10,10 @@ import signal
 import time
 from pathlib import Path
 
+from .application.automation import Automation
 from .application.bus import CommandBus, QueryBus
 from .application.command_handlers import register_command_handlers
+from .application.control_handlers import register_control_handlers
 from .application.erm_handlers import register_erm_handlers
 from .application.query_handlers import register_query_handlers
 from .application.scene_handlers import register_scene_handlers
@@ -61,6 +63,11 @@ class Services:
         self.sessions = SessionManager(secret)
         self.kiosk_token = self._kiosk_token()
         self.kiosk_state: dict = {}
+        # setup aids (not persisted) and output thumbnails reported by the kiosk agent
+        self.overlays = {n: {"blackout": False, "test_pattern": None, "identify_until": 0.0} for n in (1, 2)}
+        self.thumbnails: dict[int, tuple[bytes, float]] = {}
+        self.thumbnail_wanted_until = 0.0
+        self.update_check: dict | None = None
         self._tz_cache: tuple[float, str] = (0.0, "UTC")
 
         self.model = system.pi_model()
@@ -81,6 +88,8 @@ class Services:
         register_query_handlers(self.queries, self)
         register_scene_handlers(self.commands, self.queries, self)
         register_erm_handlers(self.commands, self.queries, self)
+        register_control_handlers(self.commands, self.queries, self)
+        self.automation = Automation(self)
         self._status_task: asyncio.Task | None = None
         self._pending_topics: set[str] = set()
 
@@ -89,6 +98,13 @@ class Services:
     def ndi_limit(self) -> int:
         custom = self.settings.get("ndi.max_sources")
         return int(custom) if custom is not None else system.default_ndi_limit(self.model_family)
+
+    def commands_sync_activate(self, output_id: int, scene_id: str) -> None:
+        """Activate a scene by hand (used by the remote-control API)."""
+        self.settings.set(f"scene.active.{output_id}", scene_id)
+        self.automation.on_manual_activation(output_id)
+        log.info("Output %d: scene %s activated remotely", output_id, scene_id)
+        self.notify_change("scenes")
 
     def _kiosk_token(self) -> str:
         """Shared secret of the web service and the kiosk agent (same system user).
@@ -165,6 +181,7 @@ class Services:
         ring().listeners.append(lambda e: self.events.publish_threadsafe("log", e))
         self._status_task = asyncio.create_task(self._status_loop(), name="ess-status")
         self.erm.start()
+        self.automation.start()
         await asyncio.to_thread(self.ndi.write_ndi_config)
         log.info("event-stage-screen started on %s – web interface on port %d", self.model, self.config.port)
 
@@ -172,6 +189,7 @@ class Services:
         if self._status_task:
             self._status_task.cancel()
         self.erm.stop()
+        self.automation.stop()
         self.ndi.shutdown()
         self.db.close()
 

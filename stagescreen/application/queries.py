@@ -104,3 +104,33 @@ class GetNdiStatus(Query):
 @dataclass
 class GetNdiSources(Query):
     pass
+
+
+@dataclass
+class GetThumbnail(Query):
+    output_id: int
+
+
+@dataclass
+class GetAutomation(Query):
+    pass
+
+
+@dataclass
+class ListApiKeys(Query):
+    pass
+
+
+@dataclass
+class GetRemoteStatus(Query):
+    pass
+
+
+@dataclass
+class CheckForUpdates(Query):
+    pass
+
+
+@dataclass
+class ListBackups(Query):
+    pass

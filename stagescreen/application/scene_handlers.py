@@ -19,6 +19,7 @@ from ..infrastructure.media import BUNDLED_FONTS, SYSTEM_FONTS
 from . import commands as c
 from . import queries as q
 from .bus import CommandBus, DomainError, NotFound, QueryBus
+from .control_handlers import overlay_view
 
 if TYPE_CHECKING:
     from ..container import Services
@@ -148,6 +149,7 @@ def register_scene_handlers(commands: CommandBus, queries: QueryBus, s: Services
                 raise DomainError("The scene belongs to another output")
             s.settings.set(f"scene.active.{output_id}", cmd.scene_id)
             log.info('Output %d: scene "%s" is live', output_id, scene["name"])
+        s.automation.on_manual_activation(output_id)
         changed()
 
     def import_scene(cmd: c.ImportScene) -> dict:
@@ -262,6 +264,7 @@ def register_scene_handlers(commands: CommandBus, queries: QueryBus, s: Services
             active = active_scene_id(cfg.id)
             outputs.append({
                 "id": cfg.id, "name": cfg.name, "mirror_of": cfg.mirror_of, "active": active,
+                "automation": s.automation.view(cfg.id),
                 "scenes": [scene_summary(sc, active) for sc in s.scene_repo.list(cfg.id)],
             })
         return {"outputs": outputs}
@@ -320,6 +323,7 @@ def register_scene_handlers(commands: CommandBus, queries: QueryBus, s: Services
             "timezone": s.timezone(),
             "locale": s.settings.get("ui.language", "en"),
             "erm": {**s.erm.render_data(source), "now_ms": round(time.time() * 1000)},
+            "overlay": overlay_view(s, output_id),
         }
 
     def kiosk_config(_: q.GetKioskConfig) -> dict:
@@ -332,7 +336,7 @@ def register_scene_handlers(commands: CommandBus, queries: QueryBus, s: Services
                 "custom_mode": cfg.custom_mode, "rotation": cfg.rotation,
                 "url": f"http://127.0.0.1:{s.config.port}/render/{cfg.id}",
             })
-        return {"outputs": outputs, "token": s.kiosk_token}
+        return {"outputs": outputs, "token": s.kiosk_token, "thumbnails": time.time() < s.thumbnail_wanted_until}
 
     for message, handler in [
         (c.CreateScene, create_scene), (c.SaveSceneDraft, save_draft), (c.PublishScene, publish),
