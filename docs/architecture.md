@@ -99,6 +99,40 @@ GStreamer NDI plugin (gst-plugins-rs) and registers both in
 patterns (`test:smpte`, `test:ball`, …) are offered as sources for
 development and tests. WebRTC as an alternative transport may follow later.
 
+## Operation
+
+**Setup aids** (per output, not persisted): blackout, test patterns (`bars`,
+`grid`, `edges` – each labelled with the real output resolution) and
+"identify" (big output number for a few seconds). They are part of the render
+state and drawn by `web/static/js/overlay.js` above everything, outside the
+mirror transform.
+
+**Live thumbnails**: while someone looks at the dashboard
+(`GET /api/outputs/<n>/thumbnail` marks thumbnails as wanted for 30 s), the
+kiosk config says `thumbnails: true`; the agent then captures each output with
+`grim` every 5 s (JPEG, PNG if grim lacks JPEG support) and posts it to
+`/api/kiosk/thumbnail/<n>`.
+
+**Automatic scene switching** (`application/automation.py`): per output an
+ordered rule list – `urgent_message`, `erm_offline` (after N seconds),
+`no_program`, `finished`, `running`, `pending`, `always` – evaluated every 2 s
+against the ERM poller state; the first matching rule decides. During an ERM
+outage the last known run sheet keeps counting for the other triggers. A
+manual activation (web UI or API) sets a manual override until "back to
+automatic".
+
+**Remote control API** (`/api/v1/…`, see [api.md](api.md)): authenticated with
+API keys (`ess_…`, stored as SHA-256 hashes, shown once). `GET` actions are
+only accepted with an API key, so links cannot trigger them through a browser
+session; repeated wrong keys are rate limited.
+
+**Updates**: `GET /api/updates` asks the GitHub releases API of
+`ESS_UPDATE_REPO`. Installing creates a backup in `<data>/backups` (the last
+five are kept) and calls `ess-helper update TAG`. The root helper accepts only
+a version tag, downloads the tagged source archive of the configured
+repository itself and runs its `deploy/install.sh` detached with
+`systemd-run` – the web service can never hand code to the helper.
+
 ## Kiosk
 
 `event-stage-screen-kiosk.service` opens a logind session on tty1 for the
@@ -159,6 +193,7 @@ Environment variables (`/etc/event-stage-screen.env`):
 | `ESS_HELPER` | `/usr/local/lib/event-stage-screen/ess-helper` | Path of the root helper |
 | `ESS_DRM_DIR` | `/sys/class/drm` | DRM sysfs (HDMI connector detection) |
 | `ESS_LOG_LEVEL` | `INFO` | Log level |
+| `ESS_UPDATE_REPO` | `pat95st/event-stage-screen` | GitHub repository for updates (also read by the root helper) |
 | `ESS_NDI_TEST_SOURCES` | – | `1` offers GStreamer test patterns as NDI sources (development) |
 | `GST_PLUGIN_PATH`, `NDI_RUNTIME_DIR_V6` | – | Set by `deploy/install-ndi.sh` |
 

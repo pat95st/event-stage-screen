@@ -58,6 +58,18 @@
       </div>
     </div>
     <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Software update") }}</span></div>
+      <div class="ess-panel-body">
+        <div class="d-flex gap-2 align-items-center flex-wrap">
+          <span class="small">{{ _("Installed version") }}: <span class="mono">{{ version }}</span></span>
+          <button class="btn btn-sm btn-console ms-auto" id="btn-check">{{ _("Check for updates") }}</button>
+        </div>
+        <div class="mt-2 small" id="update-result"></div>
+        <div class="form-text">{{ _("Before every update a backup of the configuration is created automatically. Alternatively, run deploy/install.sh again from a new checkout.") }}</div>
+        <div class="mt-2 small" id="backups"></div>
+      </div>
+    </div>
+    <div class="ess-panel">
       <div class="ess-panel-head"><span>{{ _("Backup") }}</span></div>
       <div class="ess-panel-body">
         <p class="small text-dim">{{ _("The backup contains all settings, scenes and the media library.") }}</p>
@@ -66,6 +78,20 @@
           <label class="btn btn-console mb-0">{{ _("Restore backup …") }}<input type="file" id="restore-file" accept=".zip,application/zip" hidden></label>
         </div>
         <div class="form-text">{{ _("Restoring replaces the current configuration and restarts the service.") }}</div>
+      </div>
+    </div>
+    <div class="ess-panel">
+      <div class="ess-panel-head"><span>{{ _("Remote control (API keys)") }}</span></div>
+      <div class="ess-panel-body">
+        <p class="small text-dim">{{ _("API keys allow other systems (e.g. Bitfocus Companion or a Stream Deck) to switch scenes, black out outputs and more. The REST API is described in docs/api.md.") }}</p>
+        <table class="table table-sm small mb-2"><tbody id="keys"></tbody></table>
+        <form id="key-form" class="d-flex gap-2">
+          <input class="form-control" name="name" maxlength="40" placeholder="{{ _('e.g. Companion') }}" required aria-label="{{ _('Name') }}">
+          <button class="btn btn-console text-nowrap" type="submit">{{ _("Create key") }}</button>
+        </form>
+        <div class="alert alert-success small mt-2 mb-0" id="new-key" hidden>
+          {{ _("Copy the key now – it is shown only once:") }}<code class="d-block mt-1 user-select-all" id="new-key-value"></code>
+        </div>
       </div>
     </div>
     <div class="ess-panel">
@@ -176,6 +202,77 @@
     if (e.target.new_password.value !== e.target.new_password2.value) { ESS.toast(T("The new passwords do not match"), "err"); return; }
     await ESS.run(() => ESS.api("/api/account/password", { current_password: e.target.current_password.value, new_password: e.target.new_password.value }), T("Password changed"));
     e.target.reset();
+  });
+
+  async function loadKeys() {
+    const d = await ESS.api("/api/apikeys");
+    const box = document.getElementById("keys");
+    box.innerHTML = d.keys.length ? "" : `<tr><td class="text-dim">${esc(T("No API keys yet."))}</td></tr>`;
+    d.keys.forEach((k) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${esc(k.name)}</td><td class="mono">${esc(k.hint)}</td>
+        <td class="text-dim">${esc(T("last used"))}: ${esc(k.last_used_at ? k.last_used_at.replace("T", " ") : T("never"))}</td>
+        <td class="text-end"><button class="btn btn-sm btn-outline-danger py-0">${esc(T("Delete"))}</button></td>`;
+      tr.querySelector("button").addEventListener("click", async () => {
+        if (!ESS.confirm(T('Delete the API key "{name}"? Systems using it lose access immediately.', { name: k.name }))) return;
+        await ESS.run(() => ESS.api(`/api/apikeys/${k.id}/delete`, {}), T("Deleted"));
+        document.getElementById("new-key").hidden = true;
+        loadKeys();
+      });
+      box.appendChild(tr);
+    });
+  }
+  document.getElementById("key-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const r = await ESS.run(() => ESS.api("/api/apikeys", { name: e.target.name.value }));
+    document.getElementById("new-key-value").textContent = r.key;
+    document.getElementById("new-key").hidden = false;
+    e.target.reset();
+    loadKeys();
+  });
+  loadKeys().catch(() => {});
+
+  async function loadBackups() {
+    const d = await ESS.api("/api/backups");
+    const box = document.getElementById("backups");
+    box.innerHTML = d.backups.length ? `<div class="text-dim mb-1">${esc(T("Automatic backups"))}</div>` : "";
+    d.backups.forEach((b) => {
+      const a = document.createElement("a");
+      a.href = "/api/backups/" + encodeURIComponent(b.name);
+      a.className = "d-block mono";
+      a.textContent = `${b.name} (${Math.ceil(b.size / 1024)} kB)`;
+      box.appendChild(a);
+    });
+  }
+  loadBackups().catch(() => {});
+
+  document.getElementById("btn-check").addEventListener("click", async () => {
+    const box = document.getElementById("update-result");
+    box.textContent = T("Checking …");
+    let r;
+    try { r = await ESS.api("/api/updates"); } catch (e) { box.textContent = e.message; return; }
+    box.innerHTML = "";
+    if (!r.latest) { box.textContent = T("No release has been published yet."); return; }
+    if (!r.update_available) { box.textContent = T("The installed version is up to date (latest: {v}).", { v: r.latest.tag }); return; }
+    const head = document.createElement("div");
+    head.innerHTML = `<strong>${esc(T("New version available: {v}", { v: r.latest.tag }))}</strong>`;
+    const notes = document.createElement("pre");
+    notes.className = "small bg-black p-2 rounded mt-1 mb-2";
+    notes.style.whiteSpace = "pre-wrap";
+    notes.textContent = r.latest.notes || r.latest.name;
+    const btn = document.createElement("button");
+    btn.className = "btn btn-sm btn-primary";
+    btn.textContent = T("Install {v}", { v: r.latest.tag });
+    btn.addEventListener("click", async () => {
+      if (!ESS.confirm(T("Install version {v}? The outputs and the web interface restart during the update (a few minutes).", { v: r.latest.tag }))) return;
+      const res = await ESS.run(() => ESS.api("/api/updates/install", { tag: r.latest.tag }), T("Update started – the page reloads when the device is back."));
+      box.textContent = T("Update running … backup: {name}", { name: res.backup });
+      const wait = setInterval(async () => {
+        try { const h = await fetch("/api/health", { cache: "no-store" }); const j = await h.json(); if (j.version === r.latest.tag.replace(/^v/, "")) { clearInterval(wait); location.reload(); } }
+        catch (e) { /* restarting */ }
+      }, 5000);
+    });
+    box.append(head, notes, btn);
   });
 
   loadInfo().catch((e) => ESS.toast(e.message, "err"));

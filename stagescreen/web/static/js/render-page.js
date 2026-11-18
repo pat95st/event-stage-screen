@@ -130,8 +130,9 @@
       if (!res.ok) throw new Error("HTTP " + res.status);
       const st = (await res.json()).result;
       erm = withSkew(st.erm);
-      const rest = Object.assign({}, st, { erm: null });
+      const rest = Object.assign({}, st, { erm: null, overlay: null });
       const json = JSON.stringify(rest);
+      window.ESSOverlay.apply(st);
       if (json !== lastJson) { lastJson = json; apply(st); }
       else if (current) current.stage.setErm(erm);
     } catch (e) {
@@ -157,6 +158,7 @@
     es.addEventListener("changed", (m) => {
       const data = JSON.parse(m.data);
       if (data.topic === "erm") { clearTimeout(ermPending); ermPending = setTimeout(loadErm, 50); return; }
+      if (data.topic === "thumbnail") return;
       if (data.topic === "media") document.getElementById("fonts-css").href = "/api/fonts.css" + q + (q ? "&" : "?") + "t=" + Date.now();
       scheduleLoad();
     });

@@ -48,6 +48,38 @@
     document.getElementById("s-flags").innerHTML = st.throttled_flags.map((f) => `<li>${esc(f)}</li>`).join("");
   }
 
+  const thumbs = {};
+  async function refreshThumbs() {
+    if (document.hidden) return;
+    for (const n of [1, 2]) {
+      try {
+        const res = await fetch(`/api/outputs/${n}/thumbnail`, { cache: "no-store" });
+        if (!res.ok) continue;
+        const url = URL.createObjectURL(await res.blob());
+        if (thumbs[n]) URL.revokeObjectURL(thumbs[n]);
+        thumbs[n] = url;
+        const img = document.getElementById("thumb-" + n);
+        if (img) { img.src = url; img.hidden = false; }
+      } catch (e) { /* best effort */ }
+    }
+  }
+  setInterval(refreshThumbs, 5000);
+  refreshThumbs();
+
+  document.getElementById("outputs").addEventListener("click", async (ev) => {
+    const b = ev.target.closest("button[data-act]");
+    if (!b) return;
+    const n = b.closest("[data-out]").dataset.out;
+    if (b.dataset.act === "blackout") await ESS.run(() => ESS.api(`/api/outputs/${n}/blackout`, {}));
+    if (b.dataset.act === "identify") await ESS.run(() => ESS.api(`/api/outputs/${n}/identify`, {}));
+  });
+  document.getElementById("outputs").addEventListener("change", async (ev) => {
+    const sel = ev.target.closest("select[data-act=pattern]");
+    if (!sel) return;
+    const n = sel.closest("[data-out]").dataset.out;
+    await ESS.run(() => ESS.api(`/api/outputs/${n}/testpattern`, { pattern: sel.value || null }));
+  });
+
   function renderOutputs(outputs) {
     document.getElementById("outputs").innerHTML = outputs.map((o) => {
       const mode = o.mode_label ? o.mode_label.replace("@", " @ ") + " Hz" : T("Preferred mode of the monitor");
@@ -56,13 +88,23 @@
       return `<div class="col-md-6"><div class="ess-panel output-card h-100">
         <div class="ess-panel-head"><span>${esc(o.name)}</span><span class="mono">${esc(o.connector)}</span></div>
         <div class="ess-panel-body">
-          <div class="screen ${o.connected && o.enabled ? "on" : ""} mb-3"><span class="num">${o.id}</span><span class="tag">${esc(state)}</span></div>
+          <div class="screen ${o.connected && o.enabled ? "on" : ""} mb-3"><span class="num">${o.id}</span>
+            <img class="thumb" id="thumb-${o.id}" alt="" ${thumbs[o.id] ? `src="${thumbs[o.id]}"` : "hidden"}>
+            <span class="tag">${esc(state)}</span>${o.overlay.blackout ? `<span class="badge bg-danger position-absolute top-0 end-0 m-2">${esc(T("Blackout"))}</span>` : ""}</div>
           <dl class="kv">
             <dt>${T("Mode")}</dt><dd>${esc(mode)}</dd>
             <dt>${T("Rotation")}</dt><dd>${o.rotation}°</dd>
             <dt>${T("Scene")}</dt><dd>${esc(o.scene_name || T("Splash screen"))}</dd>
           </dl>
-          <div class="d-flex gap-2 mt-3"><a class="btn btn-sm btn-console" href="/outputs#output-${o.id}">${T("Configure")}</a>
+          <div class="d-flex flex-wrap gap-2 mt-3 align-items-center" data-out="${o.id}">
+            <button class="btn btn-sm ${o.overlay.blackout ? "btn-danger" : "btn-console"}" data-act="blackout">${T("Blackout")}</button>
+            <button class="btn btn-sm btn-console" data-act="identify">${T("Identify")}</button>
+            <select class="form-select form-select-sm w-auto" data-act="pattern" aria-label="${esc(T("Test pattern"))}">
+              ${[["", T("No test pattern")], ["bars", T("Colour bars")], ["grid", T("Grid")], ["edges", T("Edge markers")]]
+                .map(([v, l]) => `<option value="${v}" ${(o.overlay.test_pattern || "") === v ? "selected" : ""}>${esc(l)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="d-flex gap-2 mt-2"><a class="btn btn-sm btn-console" href="/outputs#output-${o.id}">${T("Configure")}</a>
           <a class="btn btn-sm btn-console" href="/scenes">${T("Scenes")}</a>
           <a class="btn btn-sm btn-console" href="/render/${o.id}" target="_blank" rel="noopener">${T("Preview")}</a></div>
         </div></div></div>`;

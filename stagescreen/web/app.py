@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import re
 import secrets
 import socket
 import time
@@ -35,6 +36,7 @@ from .. import __version__
 from ..application import commands as c
 from ..application import queries as q
 from ..application.bus import DomainError
+from ..application.control_handlers import verify_api_key
 from ..container import Services
 from ..i18n import LANGUAGES, Msg, catalog_for, current_language, set_language, t, text_of
 from ..infrastructure.auth import SESSION_COOKIE, SESSION_MAX_AGE, verify_password
@@ -51,6 +53,7 @@ KIOSK_PATHS = ("/render/", "/api/render/", "/media/", "/api/fonts.css", "/ndi/")
 # Reachable with the kiosk token only (kiosk agent).
 KIOSK_ONLY_PATHS = ("/api/kiosk/",)
 KIOSK_HEADER = "x-ess-kiosk"
+API_V1 = "/api/v1/"
 CSRF_HEADER = "x-ess"
 MAX_UPLOAD_BYTES = 26 * 2**20
 
@@ -89,6 +92,26 @@ def create_app(services: Services) -> Starlette:
                 return await call_next(request)
             if kiosk and path.startswith(KIOSK_PATHS) and request.method == "GET":
                 return await call_next(request)
+            if path.startswith(API_V1):
+                api_key = _api_key_of(request)
+                if api_key is not None:
+                    ip = request.client.host if request.client else "?"
+                    now = asyncio.get_running_loop().time()
+                    recent = [ts for ts in key_failures.get(ip, []) if now - ts < 300]
+                    if len(recent) >= 20:
+                        return JSONResponse({"ok": False, "error": t("Too many failed attempts – please wait 5 minutes")}, status_code=429)
+                    if verify_api_key(s, api_key):
+                        key_failures.pop(ip, None)
+                        request.scope["api_key"] = True
+                        return await call_next(request)
+                    key_failures[ip] = recent + [now]
+                    log.warning("Rejected API key from %s", ip)
+                    return JSONResponse({"ok": False, "error": t("Invalid API key")}, status_code=401)
+                if not user:
+                    return JSONResponse({"ok": False, "error": t("API key required")}, status_code=401)
+                # with a session (trying the API in the browser) GET requests must not change anything
+                if request.method == "GET" and _is_action(path):
+                    return JSONResponse({"ok": False, "error": t("Actions via GET need an API key; use POST")}, status_code=403)
             if s.user_repo.count() == 0:
                 return _deny(request, "/setup")
             if not user:
@@ -96,6 +119,17 @@ def create_app(services: Services) -> Starlette:
             if request.method in ("POST", "PUT", "DELETE", "PATCH") and request.headers.get(CSRF_HEADER) != "1":
                 return JSONResponse({"error": t("Missing request header (CSRF protection)")}, status_code=403)
             return await call_next(request)
+
+    key_failures: dict[str, list[float]] = {}
+
+    def _api_key_of(request: Request) -> str | None:
+        auth = request.headers.get("authorization") or ""
+        if auth.lower().startswith("bearer "):
+            return auth[7:].strip()
+        return request.headers.get("x-api-key") or request.query_params.get("key")
+
+    def _is_action(path: str) -> bool:
+        return path.rstrip("/") != "/api/v1/status"
 
     def _kiosk_authed(request: Request) -> bool:
         token = request.headers.get(KIOSK_HEADER) or request.query_params.get("k") or ""
@@ -249,6 +283,13 @@ def create_app(services: Services) -> Starlette:
         return Response(data, media_type="application/zip",
                         headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
+    async def api_backup_file(request: Request) -> Response:
+        name = request.path_params["name"]
+        path = s.config.backup_dir / name
+        if not re.fullmatch(r"[A-Za-z0-9._-]+\.zip", name) or not path.is_file():
+            return PlainTextResponse(t("File not found"), status_code=404)
+        return FileResponse(path, media_type="application/zip", filename=name)
+
     async def api_backup_restore(request: Request) -> Response:
         if int(request.headers.get("content-length") or 0) > MAX_BACKUP_BYTES:
             return JSONResponse({"error": t("The backup file is too large")}, status_code=413)
@@ -353,6 +394,47 @@ def create_app(services: Services) -> Starlette:
         age = time.time() - hub.last_frame_at
         return Response(hub.jpeg, media_type="image/jpeg",
                         headers={"Cache-Control": "no-store", "X-Frame-Age": f"{age:.1f}"})
+
+    async def api_thumbnail(request: Request) -> Response:
+        async def run(_: Request) -> Any:
+            item = await s.queries.dispatch(q.GetThumbnail(int(request.path_params["id"])))
+            if item is None:
+                return JSONResponse({"error": t("No thumbnail yet")}, status_code=404)
+            mime = "image/png" if item["data"].startswith(b"\x89PNG") else "image/jpeg"
+            return Response(item["data"], media_type=mime,
+                            headers={"Cache-Control": "no-store", "X-Thumbnail-Age": f"{item['age']:.1f}"})
+        return await api(run)(request)
+
+    async def api_kiosk_thumbnail(request: Request) -> Response:
+        data = await request.body()
+
+        async def run(_: Request) -> Any:
+            return await s.commands.dispatch(c.StoreThumbnail(int(request.path_params["n"]), data))
+        return await api(run)(request)
+
+    # ------------------------------------------------------------------ REST API v1 (remote control)
+
+    async def v1_params(request: Request) -> dict[str, Any]:
+        """JSON body for POST, query parameters for GET (key-authenticated)."""
+        if request.method == "GET":
+            return dict(request.query_params)
+        return await body(request)
+
+    def _bool(value: Any) -> bool | None:
+        if value is None or value == "" or value == "toggle":
+            return None
+        if isinstance(value, bool):
+            return value
+        return str(value).lower() in ("1", "true", "on", "yes")
+
+    def v1(factory: Callable[[Request, dict[str, Any]], Any]) -> Callable[[Request], Awaitable[Response]]:
+        async def run(request: Request) -> Any:
+            data = await v1_params(request)
+            return await s.commands.dispatch(factory(request, data))
+        return api(run)
+
+    def n_of(request: Request) -> int:
+        return int(request.path_params["n"])
 
     async def api_kiosk_report(request: Request) -> Response:
         data = await body(request)
@@ -462,6 +544,46 @@ def create_app(services: Services) -> Starlette:
         Route("/api/render/{n:int}/state", query(lambda r: q.GetRenderState(p(r, "n")))),
         Route("/api/kiosk/config", query(lambda r: q.GetKioskConfig())),
         Route("/api/kiosk/report", api_kiosk_report, methods=["POST"]),
+        Route("/api/kiosk/thumbnail/{n:int}", api_kiosk_thumbnail, methods=["POST"]),
+
+        # automation
+        Route("/automation", page("automation.html", "automation", "Automation")),
+        Route("/api/automation", query(lambda r: q.GetAutomation())),
+        Route("/api/automation/{id:int}", command(lambda r, d: c.SaveAutomation(p(r, "id"), bool(d.get("enabled")), list(d.get("rules") or []))), methods=["POST"]),
+        Route("/api/outputs/{id:int}/automatic", command(lambda r, d: c.ResumeAutomation(p(r, "id"))), methods=["POST"]),
+
+        # REST API v1 (API key, see docs/api.md)
+        Route("/api/v1/status", query(lambda r: q.GetRemoteStatus())),
+        Route("/api/v1/outputs/{n:int}/scene", v1(lambda r, d: c.ActivateSceneRef(n_of(r), str(d.get("scene") or ""))), methods=["GET", "POST"]),
+        Route("/api/v1/outputs/{n:int}/scene/next", v1(lambda r, d: c.CycleScene(n_of(r), 1)), methods=["GET", "POST"]),
+        Route("/api/v1/outputs/{n:int}/scene/previous", v1(lambda r, d: c.CycleScene(n_of(r), -1)), methods=["GET", "POST"]),
+        Route("/api/v1/outputs/{n:int}/automatic", v1(lambda r, d: c.ResumeAutomation(n_of(r))), methods=["GET", "POST"]),
+        Route("/api/v1/outputs/{n:int}/blackout", v1(lambda r, d: c.SetBlackout(n_of(r), _bool(d.get("on")))), methods=["GET", "POST"]),
+        Route("/api/v1/blackout", v1(lambda r, d: c.SetBlackout(None, _bool(d.get("on")))), methods=["GET", "POST"]),
+        Route("/api/v1/outputs/{n:int}/testpattern", v1(lambda r, d: c.SetTestPattern(n_of(r), d.get("pattern") or None)), methods=["GET", "POST"]),
+        Route("/api/v1/outputs/{n:int}/identify", v1(lambda r, d: c.IdentifyOutputs(n_of(r), float(d.get("seconds") or 6))), methods=["GET", "POST"]),
+        Route("/api/v1/identify", v1(lambda r, d: c.IdentifyOutputs(None, float(d.get("seconds") or 6))), methods=["GET", "POST"]),
+        Route("/api/v1/outputs/{n:int}/elements/{element}/visible",
+              v1(lambda r, d: c.SetElementVisibility(n_of(r), r.path_params["element"], _bool(d.get("visible")))), methods=["GET", "POST"]),
+
+        # updates and backups
+        Route("/api/updates", query(lambda r: q.CheckForUpdates())),
+        Route("/api/updates/install", command(lambda r, d: c.InstallUpdate(str(d.get("tag") or ""))), methods=["POST"]),
+        Route("/api/backups", query(lambda r: q.ListBackups())),
+        Route("/api/backups/{name}", api_backup_file),
+
+        # API keys (admin)
+        Route("/api/apikeys", query(lambda r: q.ListApiKeys())),
+        Route("/api/apikeys", command(lambda r, d: c.CreateApiKey(str(d.get("name") or ""))), methods=["POST"]),
+        Route("/api/apikeys/{id}/delete", command(lambda r, d: c.DeleteApiKey(p(r, "id"))), methods=["POST"]),
+
+        # setup aids
+        Route("/api/outputs/{id:int}/thumbnail", api_thumbnail),
+        Route("/api/outputs/{id:int}/blackout", command(lambda r, d: c.SetBlackout(p(r, "id"), d.get("on"))), methods=["POST"]),
+        Route("/api/outputs/blackout", command(lambda r, d: c.SetBlackout(None, d.get("on"))), methods=["POST"]),
+        Route("/api/outputs/{id:int}/testpattern", command(lambda r, d: c.SetTestPattern(p(r, "id"), d.get("pattern") or None)), methods=["POST"]),
+        Route("/api/outputs/{id:int}/identify", command(lambda r, d: c.IdentifyOutputs(p(r, "id"), float(d.get("seconds") or 6))), methods=["POST"]),
+        Route("/api/outputs/identify", command(lambda r, d: c.IdentifyOutputs(None, float(d.get("seconds") or 6))), methods=["POST"]),
 
         Mount("/static", app=StaticFiles(directory=HERE / "static"), name="static"),
     ]

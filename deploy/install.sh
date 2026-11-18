@@ -28,7 +28,7 @@ fi
 say "System packages"
 apt-get update -qq
 apt-get install -y -qq python3 python3-venv curl rsync sudo network-manager \
-  sway wlr-randr fonts-dejavu-core \
+  sway wlr-randr grim fonts-dejavu-core \
   python3-gi gir1.2-gstreamer-1.0 gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good
 if apt-cache show chromium >/dev/null 2>&1; then
   apt-get install -y -qq chromium

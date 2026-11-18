@@ -91,6 +91,9 @@ class KioskAgent:
     connectors: dict[int, str] = field(default_factory=dict)
     failed_plans: dict[str, tuple[tuple, float]] = field(default_factory=dict)
     last_error: str | None = None
+    capture: Callable[[str, float], bytes | None] | None = None
+    post_bytes: Callable[[str, bytes], None] | None = None
+    last_thumbnail: float = -1e9
 
     # ------------------------------------------------------------------ I/O
     def _http(self, path: str, data: dict | None = None) -> dict:
@@ -132,6 +135,50 @@ class KioskAgent:
         urls = {n: d["url"] for n, d in desired.items()}
         self.supervise_browsers(active, urls)
         self.report(list(outputs.values()))
+        if config.get("thumbnails"):
+            self.thumbnails(active, outputs)
+
+    # ------------------------------------------------------------------ thumbnails
+    THUMBNAIL_INTERVAL_S = 5.0
+    THUMBNAIL_WIDTH = 480
+
+    def thumbnails(self, active: dict[int, str], outputs: dict[str, dict]) -> None:
+        """Screenshots of the real outputs for the web UI (only while someone is watching)."""
+        if self.clock() - self.last_thumbnail < self.THUMBNAIL_INTERVAL_S:
+            return
+        self.last_thumbnail = self.clock()
+        for n, connector in active.items():
+            width = logical_width(outputs.get(connector, {})) or 1920
+            data = self._capture(connector, min(1.0, self.THUMBNAIL_WIDTH / width))
+            if data:
+                try:
+                    self._post_bytes(f"/api/kiosk/thumbnail/{n}", data)
+                except (urllib.error.URLError, OSError, ValueError):
+                    pass
+
+    def _capture(self, connector: str, scale: float) -> bytes | None:
+        if self.capture:
+            return self.capture(connector, scale)
+        if not shutil.which("grim"):
+            return None
+        # JPEG keeps thumbnails small; some grim builds lack JPEG support, then PNG is used
+        for fmt in (["-t", "jpeg", "-q", "70"], ["-t", "png", "-l", "9"]):
+            try:
+                proc = subprocess.run(["grim", "-o", connector, "-s", f"{scale:.3f}", *fmt, "-"],
+                                      capture_output=True, timeout=10)
+            except (OSError, subprocess.SubprocessError):
+                return None
+            if proc.returncode == 0 and proc.stdout.startswith((b"\xff\xd8", b"\x89PNG")):
+                return proc.stdout
+        return None
+
+    def _post_bytes(self, path: str, data: bytes) -> None:
+        if self.post_bytes:
+            return self.post_bytes(path, data)
+        req = urllib.request.Request(self.base_url + path, data=data, method="POST",
+                                     headers={"X-ESS-Kiosk": self.token, "Content-Type": "application/octet-stream"})
+        with urllib.request.urlopen(req, timeout=5) as res:
+            res.read()
 
     def apply_outputs(self, desired: dict[int, dict], outputs: dict[str, dict]) -> None:
         x = 0

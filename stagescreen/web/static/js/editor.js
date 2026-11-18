@@ -214,7 +214,16 @@
     E.list.outputs.forEach((o) => {
       const wrap = document.createElement("div");
       wrap.className = "scene-out";
-      wrap.innerHTML = `<div class="scene-out-head"><span>${esc(o.name)}</span>${o.mirror_of ? `<span title="${esc(T("This output currently mirrors output {n}", { n: o.mirror_of }))}">⇄ ${o.mirror_of}</span>` : ""}</div>`;
+      const auto = o.automation || {};
+      const autoBadge = !auto.enabled ? "" : auto.manual
+        ? `<button class="btn btn-sm btn-warning py-0 px-1" data-resume="${o.id}" title="${esc(T("Back to automatic"))}">${esc(T("MANUAL"))} ↺</button>`
+        : `<span class="badge bg-success" title="${esc(T("Automatic scene switching is active"))}">AUTO</span>`;
+      wrap.innerHTML = `<div class="scene-out-head"><span>${esc(o.name)}</span><span class="d-flex gap-1 align-items-center">${autoBadge}${o.mirror_of ? `<span title="${esc(T("This output currently mirrors output {n}", { n: o.mirror_of }))}">⇄ ${o.mirror_of}</span>` : ""}</span></div>`;
+      const resumeBtn = wrap.querySelector("[data-resume]");
+      if (resumeBtn) resumeBtn.addEventListener("click", async () => {
+        await ESS.run(() => ESS.api(`/api/outputs/${o.id}/automatic`, {}), T("Back to automatic"));
+        loadList();
+      });
       if (!o.scenes.length) {
         const empty = document.createElement("div");
         empty.className = "small text-dim px-2"; empty.textContent = T("No scenes yet");

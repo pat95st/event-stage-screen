@@ -41,8 +41,8 @@ a { color: var(--ess-accent); }
 }
 .ess-brand .logo::before { left: 4px; } .ess-brand .logo::after { right: 4px; }
 .ess-nav .nav-link {
-  color: var(--ess-dim); border-radius: 6px; padding: .45rem .8rem; font-weight: 600; font-size: .85rem;
-  text-transform: uppercase; letter-spacing: .05em;
+  color: var(--ess-dim); border-radius: 6px; padding: .45rem .55rem; font-weight: 600; font-size: .78rem;
+  text-transform: uppercase; letter-spacing: .03em;
 }
 .ess-nav .nav-link:hover { color: #fff; background: rgba(255,255,255,.04); }
 .ess-nav .nav-link.active { color: #fff; background: #2a3038; box-shadow: inset 0 -2px 0 var(--ess-accent); }
@@ -108,3 +108,5 @@ a { color: var(--ess-accent); }
 @media (max-width: 768px) {
   .ess-status { width: 100%; }
 }
+.output-card .screen .thumb { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.output-card .screen .tag { z-index: 1; background: rgba(0,0,0,.6); padding: 0 .3rem; border-radius: 3px; }

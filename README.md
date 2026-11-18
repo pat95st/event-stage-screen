@@ -7,6 +7,7 @@ in a Bootstrap-based web application on the device.
 
 - Specification: [`docs/SPEC.md`](docs/SPEC.md)
 - Architecture: [`docs/architecture.md`](docs/architecture.md)
+- Remote control API: [`docs/api.md`](docs/api.md)
 - Milestone 1 (dual HDMI + NDI measurements): [`prototype/README.md`](prototype/README.md)
 
 ## Status
@@ -18,19 +19,21 @@ in a Bootstrap-based web application on the device.
 | 3. Renderer and scene editor | done |
 | 4. eventrentmanager integration | done |
 | 5. NDI (MJPEG transport) | done |
-| 6. Automation, API, setup aids, updates | next |
+| 6. Automation, API, setup aids, updates | done |
 
 The web interface currently offers: a scene editor (text, image, clock,
 colour, NDI and eventrentmanager elements – countdown, progress, current/next item,
 trade notes, delay, messages, no-strobe banner, item list and more, plus a
 "full stage display" quick start; move, resize, rotate, flip, crop, opacity, layers, lock,
 snapping, undo/redo; draft + apply or live editing; import/export), a media
-library (images and fonts), dashboard (outputs and system status),
+library (images and fonts), automatic scene switching from the run sheet,
+dashboard (outputs, live thumbnails, blackout, test patterns, identify),
 eventrentmanager connection (display token per output),
 output settings (video mode incl. custom modes, rotation, mirroring of output 1
 to output 2), network (DHCP/static, Wi-Fi, automatic rollback), system (host
 name, time zone, NTP, NDI source limit, reboot/shutdown, backup/restore,
-password, language) and live logs. English and German.
+password, language, API keys for remote control, software updates from
+GitHub releases) and live logs. English and German.
 
 ## Installation on the Raspberry Pi
 
